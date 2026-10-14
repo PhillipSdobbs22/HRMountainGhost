@@ -934,7 +934,7 @@ struct SettingsTab: View {
                                 .foregroundStyle(.secondary)
                         }
                         if let autoPace = vm.autoGhostPace {
-                            Text("Default pace \(String(format: "%.1f", autoPace)) ft/min based on your last 42 days of workouts. Adjust above to override.")
+                            Text("Default pace \(String(format: "%.1f", autoPace)) ft/min based on your last 42 days of workouts. Adjust to override.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         } else {
@@ -1032,16 +1032,18 @@ struct SettingsTab: View {
                         ghostName = name
                         ghostPace = fpm
                     }
+                } else if let pace = vm.autoGhostPace {
+                    // No manual ghost yet — use auto pace as default
+                    ghostPace = pace
                 }
                 if vm.historyGhost != nil {
                     historyEnabled = true
                     historyMode = 1
                 }
-                // Load auto ghost pace from HealthKit on first appearance
+                // If auto ghost pace hasn't loaded yet, kick it off
                 if vm.autoGhostPace == nil {
                     Task {
                         await vm.loadAutoGhostPace()
-                        // If no manual ghost is set yet, apply auto pace as default
                         if vm.manualGhost == nil, let pace = vm.autoGhostPace {
                             ghostPace = pace
                         }
