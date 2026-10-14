@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  HRMountainGhost Watch Watch App
+//  CardioAscent Watch App
 //
 //  Created by phillip shawn dobbs on 10/11/26.
 //

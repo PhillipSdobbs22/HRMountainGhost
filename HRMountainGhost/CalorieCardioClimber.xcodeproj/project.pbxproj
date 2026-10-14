@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		1612C074307C5A37004D85FF /* HRMountainGhost Watch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 1612C06A307C5A36004D85FF /* HRMountainGhost Watch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		1612C074307C5A37004D85FF /* CalorieCardioClimber Watch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 1612C06A307C5A36004D85FF /* CalorieCardioClimber Watch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -27,7 +27,7 @@
 			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
 			dstSubfolderSpec = 16;
 			files = (
-				1612C074307C5A37004D85FF /* HRMountainGhost Watch Watch App.app in Embed Watch Content */,
+				1612C074307C5A37004D85FF /* CalorieCardioClimber Watch Watch App.app in Embed Watch Content */,
 			);
 			name = "Embed Watch Content";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -35,19 +35,19 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		1612C06A307C5A36004D85FF /* HRMountainGhost Watch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "HRMountainGhost Watch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		16CBFF75307C189C00F296DF /* HRMountainGhost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HRMountainGhost.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		1612C06A307C5A36004D85FF /* CalorieCardioClimber Watch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "CalorieCardioClimber Watch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		16CBFF75307C189C00F296DF /* CalorieCardioClimber.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CalorieCardioClimber.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		1612C06B307C5A36004D85FF /* HRMountainGhost Watch Watch App */ = {
+		1612C06B307C5A36004D85FF /* CalorieCardioClimber Watch App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "HRMountainGhost Watch Watch App";
+			path = "CalorieCardioClimber Watch App";
 			sourceTree = "<group>";
 		};
-		16CBFF77307C189C00F296DF /* HRMountainGhost */ = {
+		16CBFF77307C189C00F296DF /* CalorieCardioClimber */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = HRMountainGhost;
+			path = CalorieCardioClimber;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -73,8 +73,8 @@
 		16CBFF6C307C189C00F296DF = {
 			isa = PBXGroup;
 			children = (
-				16CBFF77307C189C00F296DF /* HRMountainGhost */,
-				1612C06B307C5A36004D85FF /* HRMountainGhost Watch Watch App */,
+				16CBFF77307C189C00F296DF /* CalorieCardioClimber */,
+				1612C06B307C5A36004D85FF /* CalorieCardioClimber Watch App */,
 				16CBFF76307C189C00F296DF /* Products */,
 			);
 			sourceTree = "<group>";
@@ -82,8 +82,8 @@
 		16CBFF76307C189C00F296DF /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				16CBFF75307C189C00F296DF /* HRMountainGhost.app */,
-				1612C06A307C5A36004D85FF /* HRMountainGhost Watch Watch App.app */,
+				16CBFF75307C189C00F296DF /* CalorieCardioClimber.app */,
+				1612C06A307C5A36004D85FF /* CalorieCardioClimber Watch Watch App.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -91,9 +91,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		1612C069307C5A36004D85FF /* HRMountainGhost Watch Watch App */ = {
+		1612C069307C5A36004D85FF /* CalorieCardioClimber Watch Watch App */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 1612C078307C5A37004D85FF /* Build configuration list for PBXNativeTarget "HRMountainGhost Watch Watch App" */;
+			buildConfigurationList = 1612C078307C5A37004D85FF /* Build configuration list for PBXNativeTarget "CalorieCardioClimber Watch Watch App" */;
 			buildPhases = (
 				1612C066307C5A36004D85FF /* Sources */,
 				1612C067307C5A36004D85FF /* Frameworks */,
@@ -104,18 +104,18 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				1612C06B307C5A36004D85FF /* HRMountainGhost Watch Watch App */,
+				1612C06B307C5A36004D85FF /* CalorieCardioClimber Watch App */,
 			);
-			name = "HRMountainGhost Watch Watch App";
+			name = "CalorieCardioClimber Watch Watch App";
 			packageProductDependencies = (
 			);
 			productName = "HRMountainGhost Watch Watch App";
-			productReference = 1612C06A307C5A36004D85FF /* HRMountainGhost Watch Watch App.app */;
+			productReference = 1612C06A307C5A36004D85FF /* CalorieCardioClimber Watch Watch App.app */;
 			productType = "com.apple.product-type.application";
 		};
-		16CBFF74307C189C00F296DF /* HRMountainGhost */ = {
+		16CBFF74307C189C00F296DF /* CalorieCardioClimber */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 16CBFF80307C189E00F296DF /* Build configuration list for PBXNativeTarget "HRMountainGhost" */;
+			buildConfigurationList = 16CBFF80307C189E00F296DF /* Build configuration list for PBXNativeTarget "CalorieCardioClimber" */;
 			buildPhases = (
 				16CBFF71307C189C00F296DF /* Sources */,
 				16CBFF72307C189C00F296DF /* Frameworks */,
@@ -128,13 +128,13 @@
 				1612C073307C5A37004D85FF /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				16CBFF77307C189C00F296DF /* HRMountainGhost */,
+				16CBFF77307C189C00F296DF /* CalorieCardioClimber */,
 			);
-			name = HRMountainGhost;
+			name = CalorieCardioClimber;
 			packageProductDependencies = (
 			);
 			productName = HRMountainGhost;
-			productReference = 16CBFF75307C189C00F296DF /* HRMountainGhost.app */;
+			productReference = 16CBFF75307C189C00F296DF /* CalorieCardioClimber.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -155,7 +155,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 16CBFF70307C189C00F296DF /* Build configuration list for PBXProject "HRMountainGhost" */;
+			buildConfigurationList = 16CBFF70307C189C00F296DF /* Build configuration list for PBXProject "CalorieCardioClimber" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -169,8 +169,8 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				16CBFF74307C189C00F296DF /* HRMountainGhost */,
-				1612C069307C5A36004D85FF /* HRMountainGhost Watch Watch App */,
+				16CBFF74307C189C00F296DF /* CalorieCardioClimber */,
+				1612C069307C5A36004D85FF /* CalorieCardioClimber Watch Watch App */,
 			);
 		};
 /* End PBXProject section */
@@ -212,7 +212,7 @@
 /* Begin PBXTargetDependency section */
 		1612C073307C5A37004D85FF /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 1612C069307C5A36004D85FF /* HRMountainGhost Watch Watch App */;
+			target = 1612C069307C5A36004D85FF /* CalorieCardioClimber Watch Watch App */;
 			targetProxy = 1612C072307C5A37004D85FF /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -223,7 +223,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = "HRMountainGhost Watch Watch App/HRMountainGhost_Watch.entitlements";
+				CODE_SIGN_ENTITLEMENTS = "CalorieCardioClimber Watch App/HRMountainGhost_Watch.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = J66HU9WMGP;
@@ -232,14 +232,14 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "HRMountainGhost Watch";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "HRMountainGhost reads your heart rate and active calories during indoor cycling to estimate your mountain climb progress.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.dobbs.HRMountainGhost;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.dobbs.CalorieCardioClimber;
 				INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.dobbs.HRMountainGhost.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dobbs.CalorieCardioClimber.watchkitapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
@@ -259,7 +259,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = "HRMountainGhost Watch Watch App/HRMountainGhost_Watch.entitlements";
+				CODE_SIGN_ENTITLEMENTS = "CalorieCardioClimber Watch App/HRMountainGhost_Watch.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = J66HU9WMGP;
@@ -268,14 +268,14 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "HRMountainGhost Watch";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "HRMountainGhost reads your heart rate and active calories during indoor cycling to estimate your mountain climb progress.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.dobbs.HRMountainGhost;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.dobbs.CalorieCardioClimber;
 				INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.dobbs.HRMountainGhost.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dobbs.CalorieCardioClimber.watchkitapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
@@ -416,7 +416,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = HRMountainGhost/HRMountainGhost.entitlements;
+				CODE_SIGN_ENTITLEMENTS = CalorieCardioClimber/HRMountainGhost.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = J66HU9WMGP;
@@ -435,7 +435,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.dobbs.HRMountainGhost;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dobbs.CalorieCardioClimber;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -452,7 +452,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = HRMountainGhost/HRMountainGhost.entitlements;
+				CODE_SIGN_ENTITLEMENTS = CalorieCardioClimber/HRMountainGhost.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = J66HU9WMGP;
@@ -471,7 +471,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.dobbs.HRMountainGhost;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dobbs.CalorieCardioClimber;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -486,7 +486,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		1612C078307C5A37004D85FF /* Build configuration list for PBXNativeTarget "HRMountainGhost Watch Watch App" */ = {
+		1612C078307C5A37004D85FF /* Build configuration list for PBXNativeTarget "CalorieCardioClimber Watch Watch App" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				1612C076307C5A37004D85FF /* Debug */,
@@ -495,7 +495,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		16CBFF70307C189C00F296DF /* Build configuration list for PBXProject "HRMountainGhost" */ = {
+		16CBFF70307C189C00F296DF /* Build configuration list for PBXProject "CalorieCardioClimber" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				16CBFF7E307C189E00F296DF /* Debug */,
@@ -504,7 +504,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		16CBFF80307C189E00F296DF /* Build configuration list for PBXNativeTarget "HRMountainGhost" */ = {
+		16CBFF80307C189E00F296DF /* Build configuration list for PBXNativeTarget "CalorieCardioClimber" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				16CBFF81307C189E00F296DF /* Debug */,

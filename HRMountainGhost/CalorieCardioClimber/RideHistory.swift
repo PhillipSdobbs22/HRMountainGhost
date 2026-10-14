@@ -8,6 +8,26 @@ struct ElevationSample: Codable {
     let feet: Double
 }
 
+/// A sprint marker recorded during a ride.
+struct SprintMarker: Codable {
+    /// Elevation (feet) where the sprint began.
+    let elevationFt: Double
+    /// Elapsed time (seconds) when sprint started.
+    let elapsedStart: TimeInterval
+    /// Duration of the sprint in seconds (typically 20).
+    let duration: TimeInterval
+}
+
+/// A rest marker recorded during a ride.
+struct RestMarker: Codable {
+    /// Elevation (feet) where rest began.
+    let elevationFt: Double
+    /// Elapsed time (seconds) when rest started.
+    let elapsedStart: TimeInterval
+    /// Duration of rest in seconds.
+    let duration: TimeInterval
+}
+
 /// A completed ride stored on disk.
 struct RideRecord: Codable, Identifiable {
     let id: UUID
@@ -24,6 +44,14 @@ struct RideRecord: Codable, Identifiable {
     let samples: [ElevationSample]
     /// User-chosen name for this ride (optional).
     var label: String?
+    /// Rate of Perceived Effort (0–4). nil for legacy rides recorded before RPE was added.
+    var rpe: Int?
+    /// How the rider felt: "💩" (tired), "😊" (good energy), "💪" (strong). nil for legacy rides.
+    var feeling: String?
+    /// Sprint markers recorded during the ride.
+    var sprintMarkers: [SprintMarker]?
+    /// Rest markers recorded during the ride.
+    var restMarkers: [RestMarker]?
 
     /// Average climbing rate in feet per minute.
     var avgFeetPerMin: Double {
