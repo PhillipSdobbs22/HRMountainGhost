@@ -52,6 +52,9 @@ struct RideRecord: Codable, Identifiable {
     var sprintMarkers: [SprintMarker]?
     /// Rest markers recorded during the ride.
     var restMarkers: [RestMarker]?
+    /// HealthKit workout UUID link — ties this record to the Apple Health workout
+    /// so pace/calories/duration can be pulled from HealthKit instead of stored here.
+    var healthKitWorkoutUUID: String?
 
     /// Average climbing rate in feet per minute.
     var avgFeetPerMin: Double {

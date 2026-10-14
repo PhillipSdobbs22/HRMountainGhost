@@ -25,7 +25,8 @@ nonisolated final class HealthReader: @unchecked Sendable {
             HKQuantityType(.heartRate),
             HKQuantityType(.activeEnergyBurned),
             HKCharacteristicType(.dateOfBirth),
-            HKCharacteristicType(.biologicalSex)
+            HKCharacteristicType(.biologicalSex),
+            HKWorkoutType.workoutType()
         ]
         try await store.requestAuthorization(toShare: [], read: readTypes)
 
@@ -81,6 +82,71 @@ nonisolated final class HealthReader: @unchecked Sendable {
         } catch {
             return nil
         }
+    }
+
+    // MARK: - Workout history for auto ghost pace
+
+    /// Query Apple Health for workouts in the last 42 days and calculate
+    /// the average climbing pace (ft/min) using calorie-based conversion.
+    /// Returns nil if no workouts found or HealthKit is unavailable.
+    func averagePaceLast42Days(bodyMassKg: Double = 81.6) async -> Double? {
+        guard HKHealthStore.isHealthDataAvailable() else { return nil }
+
+        let calendar = Calendar.current
+        guard let start = calendar.date(byAdding: .day, value: -42, to: Date()) else {
+            return nil
+        }
+
+        let predicate = HKQuery.predicateForSamples(
+            withStart: start, end: Date(), options: .strictStartDate
+        )
+        let sortByDate = NSSortDescriptor(
+            key: HKSampleSortIdentifierStartDate, ascending: false
+        )
+
+        // Fetch workouts from the last 42 days
+        let workouts: [HKWorkout]? = await withCheckedContinuation { cont in
+            let query = HKSampleQuery(
+                sampleType: HKWorkoutType.workoutType(),
+                predicate: predicate,
+                limit: 200,
+                sortDescriptors: [sortByDate]
+            ) { _, samples, error in
+                if let error = error {
+                    print("Auto ghost workout query error: \(error.localizedDescription)")
+                    cont.resume(returning: nil)
+                    return
+                }
+                cont.resume(returning: samples as? [HKWorkout])
+            }
+            store.execute(query)
+        }
+
+        guard let workouts = workouts, !workouts.isEmpty else { return nil }
+
+        // Calculate average pace across all workouts
+        // Use active calories and duration to derive ft/min
+        var totalFeet: Double = 0
+        var totalMinutes: Double = 0
+
+        for workout in workouts {
+            let kcal = workout.statistics(for: HKQuantityType(.activeEnergyBurned))?
+                .sumQuantity()?
+                .doubleValue(for: .kilocalorie()) ?? 0
+
+            let durationMin = workout.duration / 60.0
+            guard durationMin > 0 else { continue }
+
+            if kcal > 0 {
+                // Convert calories to feet using ClimbMath
+                let feet = ClimbMath.feet(kcal: kcal, massKg: bodyMassKg)
+                totalFeet += feet
+                totalMinutes += durationMin
+            }
+        }
+
+        guard totalMinutes > 0, totalFeet > 0 else { return nil }
+        return totalFeet / totalMinutes
     }
 
     // MARK: - Live monitoring

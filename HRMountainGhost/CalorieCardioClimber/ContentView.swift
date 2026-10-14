@@ -34,7 +34,10 @@ struct ContentView: View {
         }
         .tint(yellow)
         .preferredColorScheme(.dark)
-        .task { await vm.requestAccess() }
+        .task {
+            await vm.requestAccess()
+            await vm.loadAutoGhostPace()
+        }
     }
 }
 
@@ -45,7 +48,6 @@ struct ClimbTab: View {
     @AppStorage("bodyWeightLb") private var weightLb: Double = 180
     @AppStorage("climbDistanceFt") private var climbDistanceFt: Double = 1000
     @AppStorage("userAvatar") private var userAvatar: String = "\u{1F60A}"
-    @AppStorage("climbModeRaw") private var climbModeRaw: Int = 0
     @AppStorage("userAge") private var userAge: Int = 0
     @AppStorage("userSex") private var userSex: Int = 0
     @AppStorage("maxHRManual") private var maxHRManual: Int = 0
@@ -68,6 +70,20 @@ struct ClimbTab: View {
             ScrollView {
                 VStack(spacing: 14) {
                     header
+                    // Nudge banner when falling back to calorie mode
+                    if vm.isCalorieFallback {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                            Text("Set your age in Settings to unlock HR Zone climbing")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.9))
+                            Spacer()
+                        }
+                        .padding(10)
+                        .background(Color.orange.opacity(0.15))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
                     progressBar
                     tiles
                     if vm.isRunning && vm.climbMode == .hrZone {
@@ -135,15 +151,14 @@ struct ClimbTab: View {
             vm.climbDistanceFt = climbDistanceFt
             syncClimbSettings()
         }
-        .onChange(of: climbModeRaw) { _, _ in syncClimbSettings() }
         .onChange(of: userAge) { _, _ in syncClimbSettings() }
         .onChange(of: userSex) { _, _ in syncClimbSettings() }
         .onChange(of: maxHRManual) { _, _ in syncClimbSettings() }
         .onChange(of: maxHROverride) { _, _ in syncClimbSettings() }
     }
 
+    /// Set maxHR on the view model — it auto-selects the climb mode.
     private func syncClimbSettings() {
-        vm.climbMode = ClimbMode(rawValue: climbModeRaw) ?? .calorie
         vm.maxHR = effectiveMaxHR
     }
 
@@ -536,7 +551,7 @@ struct ClimbTab: View {
 
     private var instructions: some View {
         Group {
-            if climbModeRaw == 1 {
+            if vm.climbMode == .hrZone {
                 Text("1. On your Watch, start any workout.\n2. Tap START here at the same moment.\n3. Your HR zone determines your climbing speed — higher effort = faster ascent. Equal across all workout types.")
                     .font(.footnote)
                     .foregroundStyle(.white)
@@ -670,7 +685,6 @@ struct SettingsTab: View {
     @AppStorage("bodyWeightLb") private var weightLb: Double = 180
     @AppStorage("climbDistanceFt") private var climbDistanceFt: Double = 1000
     @AppStorage("userAvatar") private var userAvatar: String = "\u{1F60A}"
-    @AppStorage("climbModeRaw") private var climbModeRaw: Int = 0
     @AppStorage("userAge") private var userAge: Int = 0
     @AppStorage("userSex") private var userSex: Int = 0
     @AppStorage("maxHRManual") private var maxHRManual: Int = 0
@@ -712,20 +726,26 @@ struct SettingsTab: View {
     var body: some View {
         NavigationStack {
             Form {
-                // MARK: Climb Mode
+                // MARK: Climb Mode (auto-selected)
                 Section {
-                    Picker("Climb Engine", selection: $climbModeRaw) {
-                        Text("Calorie").tag(0)
-                        Text("HR Zone").tag(1)
+                    HStack {
+                        Text("Active Engine")
+                        Spacer()
+                        Text(vm.climbMode == .hrZone ? "HR Zone" : "Calorie")
+                            .fontWeight(.bold)
+                            .foregroundStyle(yellow)
                     }
-                    .pickerStyle(.segmented)
 
-                    if climbModeRaw == 0 {
-                        Text("Elevation is calculated from active calories burned. Best for single-activity workouts like cycling.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    if vm.isCalorieFallback {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                            Text("Set your age below to enable HR Zone mode — it's fairer across all activity types.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     } else {
-                        Text("Elevation is based on your heart rate zone. Equal and fair across all workout types — running, cycling, swimming, walking, and more.")
+                        Text("HR Zone mode is active. Elevation scales with your heart rate zone — fair across all workout types.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -733,9 +753,8 @@ struct SettingsTab: View {
                     Text("Climb Mode")
                 }
 
-                // MARK: Profile (shown when HR Zone mode is selected)
-                if climbModeRaw == 1 {
-                    Section {
+                // MARK: Profile
+                Section {
                         HStack {
                             Text("Age")
                             Spacer()
@@ -848,7 +867,6 @@ struct SettingsTab: View {
                     } header: {
                         Text("HR Zones")
                     }
-                }
 
                 Section("Body weight") {
                     TextField("Pounds", value: $weightLb, format: .number)
@@ -915,9 +933,15 @@ struct SettingsTab: View {
                             Text("ft/min")
                                 .foregroundStyle(.secondary)
                         }
-                        Text("A pace of 10 ft/min finishes a 1,000 ft climb in about 1 hr 40 min.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        if let autoPace = vm.autoGhostPace {
+                            Text("Default pace \(String(format: "%.1f", autoPace)) ft/min based on your last 42 days of workouts. Adjust above to override.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("A pace of 10 ft/min finishes a 1,000 ft climb in about 1 hr 40 min.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
@@ -989,7 +1013,7 @@ struct SettingsTab: View {
             .sheet(isPresented: $showHealthImport) {
                 HealthWorkoutPickerView(
                     weightLb: weightLb,
-                    climbModeRaw: climbModeRaw,
+                    climbModeRaw: vm.climbMode == .hrZone ? 1 : 0,
                     maxHR: effectiveMaxHR,
                     vm: vm,
                     onImport: { record in
@@ -1012,6 +1036,16 @@ struct SettingsTab: View {
                 if vm.historyGhost != nil {
                     historyEnabled = true
                     historyMode = 1
+                }
+                // Load auto ghost pace from HealthKit on first appearance
+                if vm.autoGhostPace == nil {
+                    Task {
+                        await vm.loadAutoGhostPace()
+                        // If no manual ghost is set yet, apply auto pace as default
+                        if vm.manualGhost == nil, let pace = vm.autoGhostPace {
+                            ghostPace = pace
+                        }
+                    }
                 }
             }
             .onDisappear {

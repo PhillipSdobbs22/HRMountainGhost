@@ -154,13 +154,23 @@ final class RideViewModel: ObservableObject {
         didSet { mountain = Mountain.climb(distanceFt: climbDistanceFt) }
     }
 
-    /// Current climb mode: calorie-based or HR-zone-based.
-    var climbMode: ClimbMode = .calorie
+    /// Current climb mode — auto-selected based on whether max HR is available.
+    /// HR Zone when maxHR > 0, Calorie fallback otherwise.
+    @Published private(set) var climbMode: ClimbMode = .calorie
 
     /// Effective max HR used for zone calculations.
-    var maxHR: Int = 0
+    var maxHR: Int = 0 {
+        didSet { autoSelectClimbMode() }
+    }
 
-    private let reader = HealthReader()
+    /// True when the app fell back to calorie mode because max HR is unavailable.
+    @Published private(set) var isCalorieFallback: Bool = false
+
+    /// Auto ghost pace calculated from recent workout history (ft/min).
+    /// nil if no history available.
+    @Published var autoGhostPace: Double? = nil
+
+    let reader = HealthReader()
     private var startDate = Date()
     private var targetFt: Double = 0
     private var delaySamples: [Double] = []
@@ -437,6 +447,48 @@ final class RideViewModel: ObservableObject {
 
     private func removeGhost(where pred: (Ghost) -> Bool) {
         ghosts.removeAll(where: pred)
+    }
+
+    // MARK: - Auto-select climb mode
+
+    /// Automatically picks HR Zone mode when max HR is available,
+    /// falls back to Calorie mode otherwise.
+    func autoSelectClimbMode() {
+        if maxHR > 0 {
+            climbMode = .hrZone
+            isCalorieFallback = false
+        } else {
+            climbMode = .calorie
+            isCalorieFallback = true
+        }
+    }
+
+    // MARK: - Auto ghost pace from HealthKit
+
+    /// Query Apple Health for workouts in the last 42 days and calculate
+    /// average pace (ft/min). Falls back to RideStore, then 10 ft/min.
+    func loadAutoGhostPace() async {
+        // Try HealthKit first: 42-day lookback
+        let massKg = weightLb * 0.45359237
+        let healthPace = await reader.averagePaceLast42Days(bodyMassKg: massKg > 0 ? massKg : 81.6)
+        if let pace = healthPace, pace > 0 {
+            autoGhostPace = pace
+            return
+        }
+
+        // Fallback: RideStore average
+        let rides = RideStore.shared.rides
+        if !rides.isEmpty {
+            let totalPace = rides.reduce(0.0) { $0 + $1.avgFeetPerMin }
+            let avg = totalPace / Double(rides.count)
+            if avg > 0 {
+                autoGhostPace = avg
+                return
+            }
+        }
+
+        // Final fallback: 10 ft/min
+        autoGhostPace = 10.0
     }
 
     // MARK: - Private
