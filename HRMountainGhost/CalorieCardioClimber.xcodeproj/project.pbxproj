@@ -230,7 +230,13 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "HRMountainGhost Watch";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "HRMountainGhost reads your heart rate and active calories during indoor cycling to estimate your mountain climb progress.";
+				INFOPLIST_KEY_NSHealthClinicalHealthRecordsShareUsageDescription = "CalorieCardioClimber records workout data";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "CalorieCardioClimber records workout data";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "CalorieCardioClimber records workout data";
+				INFOPLIST_KEY_NSHomeKitUsageDescription = "CalorieCardioClimber records workout data";
+				INFOPLIST_KEY_NSIdentityUsageDescription = "CalorieCardioClimber records workout data";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "PaceGauge uses your location to track running speed and distance.";
+				INFOPLIST_KEY_NSUserTrackingUsageDescription = "CalorieCardioClimber records workout data";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.dobbs.CalorieCardioClimber;
 				INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp = YES;
@@ -250,7 +256,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 9;
+				WATCHOS_DEPLOYMENT_TARGET = 10.6;
 			};
 			name = Debug;
 		};
@@ -266,7 +272,13 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "HRMountainGhost Watch";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "HRMountainGhost reads your heart rate and active calories during indoor cycling to estimate your mountain climb progress.";
+				INFOPLIST_KEY_NSHealthClinicalHealthRecordsShareUsageDescription = "CalorieCardioClimber records workout data";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "CalorieCardioClimber records workout data";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "CalorieCardioClimber records workout data";
+				INFOPLIST_KEY_NSHomeKitUsageDescription = "CalorieCardioClimber records workout data";
+				INFOPLIST_KEY_NSIdentityUsageDescription = "CalorieCardioClimber records workout data";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "PaceGauge uses your location to track running speed and distance.";
+				INFOPLIST_KEY_NSUserTrackingUsageDescription = "CalorieCardioClimber records workout data";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.dobbs.CalorieCardioClimber;
 				INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp = YES;
@@ -286,7 +298,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 9;
+				WATCHOS_DEPLOYMENT_TARGET = 10.6;
 			};
 			name = Release;
 		};

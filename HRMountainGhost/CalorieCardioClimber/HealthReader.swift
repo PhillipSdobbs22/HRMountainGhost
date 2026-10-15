@@ -286,6 +286,11 @@ nonisolated final class HealthReader: NSObject, HKWorkoutSessionDelegate, @unche
         // 3. Immediate first poll
         pollHeartRate()
         pollEnergy()
+
+        // 4. Start a mirrored workout session so the Watch streams HR
+        //    at workout frequency (~5s) through HealthKit — no companion
+        //    app needed on the Watch.
+        startReadinessSession()
     }
 
     func stop() {
