@@ -36,7 +36,7 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
         .task {
             await vm.requestAccess()
-            await vm.loadAutoGhostPace()
+            await vm.loadAutoGhostPaces()
         }
     }
 }
@@ -52,6 +52,9 @@ struct ClimbTab: View {
     @AppStorage("userSex") private var userSex: Int = 0
     @AppStorage("maxHRManual") private var maxHRManual: Int = 0
     @AppStorage("maxHROverride") private var maxHROverride: Bool = false
+
+    @State private var showReadinessCheck = false
+    @Environment(\.scenePhase) private var scenePhase
 
     private let timer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
@@ -86,7 +89,10 @@ struct ClimbTab: View {
                     }
                     progressBar
                     tiles
-                    if vm.isRunning && vm.climbMode == .hrZone {
+                    if vm.isRunning {
+                        HRFreshnessBar(lastSampleDate: vm.lastHRSampleDate)
+                    }
+                    if vm.isRunning && !vm.isPaused && vm.climbMode == .hrZone {
                         zoneIndicator
                     }
                     ForEach(vm.ghosts) { ghost in
@@ -99,8 +105,7 @@ struct ClimbTab: View {
                     ProfileStrip(
                         progress: progress,
                         ghosts: vm.ghosts.map { g in
-                            let isManual: Bool = { if case .manual = g.source { return true }; return false }()
-                            return GhostDot(progress: min(max(g.currentFeet / vm.mountain.totalGainFt, 0), 1), name: g.name, isManual: isManual)
+                            GhostDot(progress: min(max(g.currentFeet / vm.mountain.totalGainFt, 0), 1), name: g.name, role: g.role)
                         },
                         accent: yellow,
                         userAvatar: userAvatar,
@@ -109,18 +114,19 @@ struct ClimbTab: View {
                     if !vm.ghosts.isEmpty {
                         GhostRadar(
                             radarGhosts: vm.ghosts.map { g in
-                                let isManual: Bool = { if case .manual = g.source { return true }; return false }()
-                                return RadarGhost(
+                                RadarGhost(
                                     gap: vm.displayedFt - g.currentFeet,
-                                    emoji: isManual ? "\u{1F47B}" : "\u{1F3C6}",
-                                    isManual: isManual
+                                    emoji: g.emoji,
+                                    role: g.role
                                 )
                             },
                             userAvatar: userAvatar
                         )
                     }
-                    if vm.isRunning {
+                    if vm.isRunning && !vm.isPaused {
                         sprintRestButtons
+                    }
+                    if vm.isRunning {
                         sprintRestStats
                     }
                     if vm.isRunning { rpeSlider }
@@ -140,6 +146,13 @@ struct ClimbTab: View {
         .onReceive(timer) { _ in vm.tick() }
         .onChange(of: vm.isRunning) { _, running in
             UIApplication.shared.isIdleTimerDisabled = running
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Coming back from the Health app (which forces a Watch sync):
+            // pull the newest heart rate and calories right away.
+            if phase == .active && vm.isRunning {
+                vm.refreshFromHealth()
+            }
         }
         .onChange(of: weightLb) { _, newValue in
             vm.weightLb = newValue
@@ -269,23 +282,66 @@ struct ClimbTab: View {
         return "\(sign)\(Int(gap)) ft"
     }
 
-    private func ghostRow(_ ghost: Ghost) -> some View {
-        let isManual: Bool = {
-            if case .manual = ghost.source { return true }
-            return false
-        }()
-        let emoji = isManual ? "\u{1F47B}" : "\u{1F3C6}"
+    @State private var adjustingGhostId: UUID? = nil
 
-        return HStack(spacing: 8) {
-            Tile(
-                value: "\(Int(ghost.currentFeet)) ft",
-                label: "\(emoji) \(ghost.name)"
-            )
-            Tile(
-                value: gapString(for: ghost),
-                label: "Gap",
-                bgColor: gapColor(for: ghost)
-            )
+    private func ghostRow(_ ghost: Ghost) -> some View {
+        let roleEmoji = ghost.emoji  // 🐇 Hare or 🐢 Tortoise
+
+        return VStack(spacing: 4) {
+            HStack(spacing: 8) {
+                Tile(
+                    value: "\(Int(ghost.currentFeet)) ft",
+                    label: "\(roleEmoji) \(ghost.name)"
+                )
+                // Tap the gap tile during a ride to show pace stepper
+                Tile(
+                    value: gapString(for: ghost),
+                    label: "Gap",
+                    bgColor: gapColor(for: ghost)
+                )
+                .onTapGesture {
+                    guard vm.isRunning else { return }
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        adjustingGhostId = adjustingGhostId == ghost.id ? nil : ghost.id
+                    }
+                }
+            }
+
+            // Mid-ride pace stepper
+            if vm.isRunning && adjustingGhostId == ghost.id {
+                HStack(spacing: 12) {
+                    Button {
+                        vm.adjustGhostPace(ghostId: ghost.id, delta: -2)
+                    } label: {
+                        Image(systemName: "minus.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.white.opacity(0.8))
+                    }
+
+                    VStack(spacing: 1) {
+                        Text(String(format: "%.0f", ghost.feetPerMin))
+                            .font(.system(size: 18, weight: .bold, design: .rounded))
+                            .foregroundStyle(yellow)
+                        Text("ft/min")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.white.opacity(0.6))
+                    }
+                    .frame(width: 70)
+
+                    Button {
+                        vm.adjustGhostPace(ghostId: ghost.id, delta: 2)
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.white.opacity(0.8))
+                    }
+                }
+                .padding(.vertical, 6)
+                .padding(.horizontal, 16)
+                .background(Color(white: 0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            }
         }
     }
 
@@ -536,16 +592,104 @@ struct ClimbTab: View {
     }
 
     private var controls: some View {
-        Button {
-            if vm.isRunning { vm.stop() } else { vm.start(weightLb: weightLb) }
-        } label: {
-            Text(vm.isRunning ? "STOP" : "START")
-                .font(.headline)
-                .frame(maxWidth: .infinity)
+        VStack(spacing: 10) {
+            // Pre-ride readiness check button (only when stopped)
+            if !vm.isRunning {
+                Button {
+                    showReadinessCheck = true
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "heart.text.clipboard")
+                        Text("Readiness Check")
+                            .font(.headline)
+                        Spacer()
+                        readinessBadge
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(Color.white.opacity(0.1))
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+            }
+
+            if vm.isPaused {
+                // Paused: choose to keep going or finish the ride.
+                VStack(spacing: 10) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "pause.circle.fill")
+                        Text("RIDE PAUSED")
+                            .font(.headline.bold())
+                    }
+                    .foregroundStyle(yellow)
+
+                    HStack(spacing: 10) {
+                        Button {
+                            vm.resume()
+                        } label: {
+                            Label("RESUME", systemImage: "play.fill")
+                                .font(.headline.bold())
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.green)
+                                .foregroundStyle(.white)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        Button {
+                            vm.stop()
+                        } label: {
+                            Label("END RIDE", systemImage: "flag.checkered")
+                                .font(.headline.bold())
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.red.opacity(0.85))
+                                .foregroundStyle(.white)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                    }
+                }
                 .padding()
-                .background(Color.white)
-                .foregroundStyle(navy)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .background(Color(white: 0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+            } else {
+                Button {
+                    if vm.isRunning { vm.pause() } else { vm.start(weightLb: weightLb) }
+                } label: {
+                    Text(vm.isRunning ? "STOP" : "START")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.white)
+                        .foregroundStyle(navy)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+            }
+        }
+        .sheet(isPresented: $showReadinessCheck) {
+            ReadinessCheckView(reader: vm.reader) { level in
+                vm.applyReadiness(level)
+            }
+        }
+    }
+
+    /// Small badge showing current readiness level.
+    private var readinessBadge: some View {
+        let level = vm.currentReadiness
+        let store = ReadinessStore.shared
+        return HStack(spacing: 4) {
+            Text(level.emoji)
+                .font(.body)
+            Text(store.hasCheckedToday ? level.rawValue : "Not checked")
+                .font(.caption.bold())
+                .foregroundStyle(store.hasCheckedToday ? colorForReadiness(level) : .gray)
+        }
+    }
+
+    private func colorForReadiness(_ level: ReadinessLevel) -> Color {
+        switch level {
+        case .fresh:    return .green
+        case .normal:   return .yellow
+        case .fatigued: return .red
         }
     }
 
@@ -585,10 +729,14 @@ struct HistoryTab: View {
                 Group {
                     if rides.isEmpty {
                         VStack(spacing: 12) {
-                            Image(systemName: "figure.outdoor.cycle")
-                                .font(.system(size: 48))
-                                .foregroundStyle(yellow)
-                            Text("No rides yet")
+                            HStack(spacing: 20) {
+                                Image(systemName: "figure.outdoor.cycle")
+                                Image(systemName: "figure.run")
+                                Image(systemName: "figure.strengthtraining.traditional")
+                            }
+                            .font(.system(size: 48))
+                            .foregroundStyle(yellow)
+                            Text("No workouts yet")
                                 .font(.title3.bold())
                                 .foregroundStyle(.white)
                             Text("Complete a climb to see your history here.")
@@ -651,7 +799,7 @@ struct HistoryTab: View {
                 Text("\(String(format: "%.1f", ride.avgFeetPerMin)) ft/min avg")
                     .foregroundStyle(yellow)
                 if let rpe = ride.rpe {
-                    Text("RPE \(rpe)")
+                    Text(rpeLabel(rpe))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1)
                         .background(Color.white.opacity(0.15))
@@ -690,17 +838,17 @@ struct SettingsTab: View {
     @AppStorage("maxHRManual") private var maxHRManual: Int = 0
     @AppStorage("maxHROverride") private var maxHROverride: Bool = false
 
-    // Manual ghost state
-    @State private var manualEnabled = false
-    @State private var ghostName = "Ghost"
-    @State private var ghostPace: Double = 10
+    // Rabbit & Hound ghost state
+    @State private var rabbitEnabled = true
+    @State private var rabbitPace: Double = 12
+    @State private var rabbitCustom = false   // true = user overrode auto value
+    @State private var houndEnabled = true
+    @State private var houndPace: Double = 6
+    @State private var houndCustom = false
 
-    // History ghost state
-    @State private var historyEnabled = false
-    @State private var historyMode = 0  // 0 = best pace, 1 = pick ride
-    @State private var showHistory = false
-
-    // Health import state
+    // Customize sheets
+    @State private var showRabbitPicker = false
+    @State private var showHoundPicker = false
     @State private var showHealthImport = false
 
     // Profile loading state
@@ -726,50 +874,48 @@ struct SettingsTab: View {
     var body: some View {
         NavigationStack {
             Form {
-                // MARK: Climb Mode (auto-selected)
-                Section {
-                    HStack {
-                        Text("Active Engine")
-                        Spacer()
-                        Text(vm.climbMode == .hrZone ? "HR Zone" : "Calorie")
-                            .fontWeight(.bold)
-                            .foregroundStyle(yellow)
-                    }
-
-                    if vm.isCalorieFallback {
-                        HStack(spacing: 8) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
-                            Text("Set your age below to enable HR Zone mode — it's fairer across all activity types.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                Section("Your avatar") {
+                    let avatars = ["\u{1F4A9}", "\u{1F60A}", "\u{1F4AA}"]
+                    let labels = ["Poop", "Smiley", "Strong"]
+                    let descriptions = [
+                        "Choose me if you're tired and feeling poopy.",
+                        "Choose me if you feel good and ready to play.",
+                        "Choose me if you're feeling strong today."
+                    ]
+                    HStack(spacing: 12) {
+                        ForEach(Array(avatars.enumerated()), id: \.offset) { idx, emoji in
+                            Button {
+                                userAvatar = emoji
+                            } label: {
+                                VStack(spacing: 4) {
+                                    Text(emoji)
+                                        .font(.system(size: 32))
+                                    Text(labels[idx])
+                                        .font(.caption.bold())
+                                        .foregroundStyle(.primary)
+                                    Text(descriptions[idx])
+                                        .font(.caption2)
+                                        .foregroundStyle(.primary)
+                                        .multilineTextAlignment(.center)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .padding(.horizontal, 4)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                                .background(userAvatar == emoji ? Color.accentColor.opacity(0.15) : Color.clear)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(userAvatar == emoji ? Color.accentColor : Color.clear, lineWidth: 2)
+                                )
+                            }
+                            .buttonStyle(.plain)
                         }
-                    } else {
-                        Text("HR Zone mode is active. Elevation scales with your heart rate zone — fair across all workout types.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                     }
-                } header: {
-                    Text("Climb Mode")
                 }
 
                 // MARK: Profile
                 Section {
-                        HStack {
-                            Text("Age")
-                            Spacer()
-                            TextField("Age", value: $userAge, format: .number)
-                                .keyboardType(.numberPad)
-                                .multilineTextAlignment(.trailing)
-                                .frame(width: 60)
-                        }
-
-                        Picker("Sex", selection: $userSex) {
-                            Text("Not Set").tag(0)
-                            Text("Male").tag(1)
-                            Text("Female").tag(2)
-                        }
-
                         Button {
                             loadingProfile = true
                             Task {
@@ -791,9 +937,34 @@ struct SettingsTab: View {
                         }
                         .disabled(loadingProfile)
 
+                        HStack {
+                            Text("Age")
+                            Spacer()
+                            TextField("Age", value: $userAge, format: .number)
+                                .keyboardType(.numberPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 60)
+                        }
+
+                        Picker("Sex", selection: $userSex) {
+                            Text("Not Set").tag(0)
+                            Text("Male").tag(1)
+                            Text("Female").tag(2)
+                        }
+
                         Text("Age and sex are used to calculate your max heart rate. You can override them anytime.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+
+                        if vm.isCalorieFallback {
+                            HStack(spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                                Text("Set your age to unlock HR Zone climbing. Until then, climbing is based on calories.")
+                                    .font(.caption)
+                                    .foregroundStyle(.primary)
+                            }
+                        }
                     } header: {
                         Text("Profile")
                     }
@@ -873,35 +1044,6 @@ struct SettingsTab: View {
                         .keyboardType(.decimalPad)
                 }
 
-                Section("Your avatar") {
-                    let avatars = ["\u{1F4A9}", "\u{1F60A}", "\u{1F4AA}"]
-                    let labels = ["Poop", "Smiley", "Strong"]
-                    HStack(spacing: 12) {
-                        ForEach(Array(avatars.enumerated()), id: \.offset) { idx, emoji in
-                            Button {
-                                userAvatar = emoji
-                            } label: {
-                                VStack(spacing: 4) {
-                                    Text(emoji)
-                                        .font(.system(size: 32))
-                                    Text(labels[idx])
-                                        .font(.caption2)
-                                        .foregroundStyle(userAvatar == emoji ? .primary : .secondary)
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 8)
-                                .background(userAvatar == emoji ? Color.accentColor.opacity(0.15) : Color.clear)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .stroke(userAvatar == emoji ? Color.accentColor : Color.clear, lineWidth: 2)
-                                )
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-
                 Section("Climb distance") {
                     HStack {
                         Text("Goal")
@@ -918,96 +1060,149 @@ struct SettingsTab: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Section("Manual Ghost \u{1F47B}") {
-                    Toggle("Enable manual ghost", isOn: $manualEnabled)
-
-                    if manualEnabled {
-                        TextField("Ghost name", text: $ghostName)
-                        HStack {
-                            Text("Pace")
-                            Spacer()
-                            TextField("ft/min", value: $ghostPace, format: .number)
-                                .keyboardType(.decimalPad)
-                                .multilineTextAlignment(.trailing)
-                                .frame(width: 80)
-                            Text("ft/min")
-                                .foregroundStyle(.secondary)
-                        }
-                        if let autoPace = vm.autoGhostPace {
-                            Text("Default pace \(String(format: "%.1f", autoPace)) ft/min based on your last 42 days of workouts. Adjust to override.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text("A pace of 10 ft/min finishes a 1,000 ft climb in about 1 hr 40 min.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                Section("History Ghost \u{1F3C6}") {
-                    Toggle("Enable history ghost", isOn: $historyEnabled)
-
-                    if historyEnabled {
-                        Picker("Source", selection: $historyMode) {
-                            Text("Best pace").tag(0)
-                            Text("Pick Activity").tag(1)
-                        }
-                        .pickerStyle(.segmented)
-
-                        if historyMode == 0 {
-                            if let best = RideStore.shared.rides.max(by: { $0.avgFeetPerMin < $1.avgFeetPerMin }) {
-                                Text("Will use: \(best.label ?? "Ride") (\(String(format: "%.1f", best.avgFeetPerMin)) ft/min)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                Text("No rides recorded yet. Complete a ride first.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-
-                        if historyMode == 1 {
-                            Button("Select from ride history") {
-                                showHistory = true
-                            }
-                            if let g = vm.historyGhost {
-                                Text("Using: \(g.name)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-
-                Section("Import from Apple Health \u{1F34F}") {
-                    Button {
-                        showHealthImport = true
-                    } label: {
-                        HStack {
-                            Image(systemName: "heart.fill")
-                                .foregroundStyle(.red)
-                            Text("Browse Apple Health Workouts")
-                        }
-                    }
-
-                    Text("Import past workouts from any app that syncs to Apple Health (Garmin, Strava, Nike, Coros, RunGap, etc.) and use them as ghost pacers.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
                 Section {
-                    Text("Both ghosts can run at the same time. Manual ghost uses a constant pace; history ghost replays a recorded ride. Import workouts from Apple Health to race against any past activity.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    // MARK: Hare row 🐇
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("\u{1F407} Hare")
+                                .font(.headline)
+                            Spacer()
+                            Toggle("", isOn: $rabbitEnabled)
+                                .labelsHidden()
+                        }
+                        if rabbitEnabled {
+                            Text("The ghost you're chasing — set to your best pace.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            HStack {
+                                Text("Pace")
+                                Spacer()
+                                TextField("ft/min", value: $rabbitPace, format: .number.precision(.fractionLength(0)))
+                                    .keyboardType(.decimalPad)
+                                    .multilineTextAlignment(.trailing)
+                                    .frame(width: 80)
+                                    .onChange(of: rabbitPace) { _, _ in rabbitCustom = true }
+                                Text("ft/min")
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            HStack(spacing: 12) {
+                                Button {
+                                    showRabbitPicker = true
+                                } label: {
+                                    Label("Customize", systemImage: "slider.horizontal.3")
+                                        .font(.caption.bold())
+                                }
+                                if rabbitCustom {
+                                    Button {
+                                        if let pace = vm.autoRabbitPace {
+                                            rabbitPace = (pace).rounded()
+                                        }
+                                        rabbitCustom = false
+                                    } label: {
+                                        Label("Reset to auto", systemImage: "arrow.counterclockwise")
+                                            .font(.caption.bold())
+                                            .foregroundStyle(.orange)
+                                    }
+                                }
+                            }
+
+                            if let autoPace = vm.autoRabbitPace, !rabbitCustom {
+                                Text("Auto: \(String(format: "%.0f", autoPace)) ft/min (best from last 42 days)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+
+                    Divider()
+
+                    // MARK: Tortoise row 🐢
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("\u{1F422} Tortoise")
+                                .font(.headline)
+                            Spacer()
+                            Toggle("", isOn: $houndEnabled)
+                                .labelsHidden()
+                        }
+                        if houndEnabled {
+                            Text("The ghost you must stay ahead of — even on bad days.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            HStack {
+                                Text("Pace")
+                                Spacer()
+                                TextField("ft/min", value: $houndPace, format: .number.precision(.fractionLength(0)))
+                                    .keyboardType(.decimalPad)
+                                    .multilineTextAlignment(.trailing)
+                                    .frame(width: 80)
+                                    .onChange(of: houndPace) { _, _ in houndCustom = true }
+                                Text("ft/min")
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            HStack(spacing: 12) {
+                                Button {
+                                    showHoundPicker = true
+                                } label: {
+                                    Label("Customize", systemImage: "slider.horizontal.3")
+                                        .font(.caption.bold())
+                                }
+                                if houndCustom {
+                                    Button {
+                                        if let pace = vm.autoHoundPace {
+                                            houndPace = (pace).rounded()
+                                        }
+                                        houndCustom = false
+                                    } label: {
+                                        Label("Reset to auto", systemImage: "arrow.counterclockwise")
+                                            .font(.caption.bold())
+                                            .foregroundStyle(.orange)
+                                    }
+                                }
+                            }
+
+                            if let autoPace = vm.autoHoundPace, !houndCustom {
+                                Text("Auto: \(String(format: "%.0f", autoPace)) ft/min (50% of your 42-day average)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                } header: {
+                    Text("Your Ghosts")
+                } footer: {
+                    Text("The Hare is the pace you're trying to beat. The Tortoise is the pace you must stay ahead of. Both are auto-calculated from your last 42 days of Apple Health workouts. Tap a ghost's gap tile during a ride to adjust pace on the fly.")
                 }
             }
             .navigationTitle("Settings")
-            .sheet(isPresented: $showHistory) {
+            // Drag the list down to hide the number pad.
+            .scrollDismissesKeyboard(.interactively)
+            // "Done" button above the number pad.
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { dismissKeyboard() }
+                        .fontWeight(.bold)
+                }
+            }
+            .sheet(isPresented: $showRabbitPicker) {
                 GhostPickerView(vm: vm, onSelect: { record in
-                    vm.setHistoryGhost(record)
-                    historyMode = 1
-                    showHistory = false
+                    rabbitPace = (record.avgFeetPerMin).rounded()
+                    rabbitCustom = true
+                    showRabbitPicker = false
+                })
+            }
+            .sheet(isPresented: $showHoundPicker) {
+                GhostPickerView(vm: vm, onSelect: { record in
+                    houndPace = (record.avgFeetPerMin).rounded()
+                    houndCustom = true
+                    showHoundPicker = false
                 })
             }
             .sheet(isPresented: $showHealthImport) {
@@ -1018,58 +1213,141 @@ struct SettingsTab: View {
                     vm: vm,
                     onImport: { record in
                         RideStore.shared.save(record)
-                        vm.setHistoryGhost(record)
-                        historyEnabled = true
-                        historyMode = 1
                         showHealthImport = false
                     }
                 )
             }
             .onAppear {
-                if let g = vm.manualGhost {
-                    manualEnabled = true
-                    if case .manual(let fpm, let name) = g.source {
-                        ghostName = name
-                        ghostPace = fpm
-                    }
-                } else if let pace = vm.autoGhostPace {
-                    // No manual ghost yet — use auto pace as default
-                    ghostPace = pace
+                // Load current ghost state from VM
+                if let rabbit = vm.rabbitGhost {
+                    rabbitEnabled = true
+                    rabbitPace = (rabbit.feetPerMin).rounded()
+                    rabbitCustom = true  // already set up
+                } else if let pace = vm.autoRabbitPace {
+                    rabbitPace = (pace).rounded()
+                    rabbitCustom = false
                 }
-                if vm.historyGhost != nil {
-                    historyEnabled = true
-                    historyMode = 1
+
+                if let hound = vm.houndGhost {
+                    houndEnabled = true
+                    houndPace = (hound.feetPerMin).rounded()
+                    houndCustom = true
+                } else if let pace = vm.autoHoundPace {
+                    houndPace = (pace).rounded()
+                    houndCustom = false
                 }
-                // If auto ghost pace hasn't loaded yet, kick it off
-                if vm.autoGhostPace == nil {
+
+                // If auto paces haven't loaded yet, kick them off
+                if vm.autoRabbitPace == nil || vm.autoHoundPace == nil {
                     Task {
-                        await vm.loadAutoGhostPace()
-                        if vm.manualGhost == nil, let pace = vm.autoGhostPace {
-                            ghostPace = pace
+                        await vm.loadAutoGhostPaces()
+                        if !rabbitCustom, let pace = vm.autoRabbitPace {
+                            rabbitPace = (pace).rounded()
+                        }
+                        if !houndCustom, let pace = vm.autoHoundPace {
+                            houndPace = (pace).rounded()
                         }
                     }
                 }
             }
             .onDisappear {
+                dismissKeyboard()
                 applyGhosts()
             }
         }
     }
 
+    /// Hide the on-screen keyboard (number pad) so the tab bar is reachable.
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder),
+            to: nil, from: nil, for: nil
+        )
+    }
+
     private func applyGhosts() {
-        if manualEnabled {
-            vm.setManualGhost(name: ghostName, feetPerMin: ghostPace)
+        if rabbitEnabled {
+            vm.setupRabbitGhost(pace: rabbitPace)
         } else {
-            vm.clearManualGhost()
+            vm.clearRabbitGhost()
         }
 
-        if historyEnabled {
-            if historyMode == 0 {
-                vm.setBestPaceGhost()
-            }
+        if houndEnabled {
+            vm.setupHoundGhost(pace: houndPace)
         } else {
-            vm.clearHistoryGhost()
+            vm.clearHoundGhost()
         }
+    }
+}
+
+// MARK: - RPE wording
+
+/// Words for a saved RPE value (0–4), shown in History and ride pickers.
+func rpeLabel(_ rpe: Int) -> String {
+    let labels = ["Really Easy", "Easy", "Not Easy", "Hard", "Really Hard"]
+    return labels.indices.contains(rpe) ? labels[rpe] : "RPE \(rpe)"
+}
+
+// MARK: - Heart-rate freshness + Sync Watch
+
+/// Sync Watch: opens this app's page in iOS Settings
+/// (Settings → Apps → CalorieCardioClimber). Tapping "Health" there opens
+/// the app's Health data-access page, which pushes the Watch's latest
+/// heart rate to the iPhone. When the rider swipes back, the app pulls
+/// the new readings automatically.
+enum HealthAppLauncher {
+    static func open() {
+        if let url = URL(string: UIApplication.openSettingsURLString) {
+            UIApplication.shared.open(url)
+        }
+    }
+}
+
+/// Shows how old the latest heart-rate reading is, plus a Sync Watch button.
+struct HRFreshnessBar: View {
+    let lastSampleDate: Date?
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let age = lastSampleDate.map { max(0, context.date.timeIntervalSince($0)) }
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(color(for: age))
+                    .frame(width: 10, height: 10)
+                Text(label(for: age))
+                    .font(.caption.bold())
+                    .foregroundStyle(.white)
+                Spacer()
+                Button {
+                    HealthAppLauncher.open()
+                } label: {
+                    Label("Sync Watch", systemImage: "arrow.triangle.2.circlepath")
+                        .font(.caption.bold())
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(yellow)
+                        .foregroundStyle(navy)
+                        .clipShape(Capsule())
+                }
+            }
+            .padding(10)
+            .background(Color(white: 0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
+    private func label(for age: TimeInterval?) -> String {
+        guard let age else { return "No heart rate yet — tap Sync Watch" }
+        let secs = Int(age)
+        let ago = secs < 60 ? "\(secs) sec ago" : "\(secs / 60) min \(secs % 60) sec ago"
+        return "Last reading: \(ago)"
+    }
+
+    private func color(for age: TimeInterval?) -> Color {
+        guard let age else { return .orange }
+        if age < 30 { return .green }
+        if age < 120 { return yellow }
+        return .orange
     }
 }
 
@@ -1110,7 +1388,7 @@ struct Tile: View {
 struct GhostDot {
     let progress: Double
     let name: String
-    let isManual: Bool
+    let role: GhostRole
 }
 
 struct MarkerDot {
@@ -1126,8 +1404,8 @@ struct ProfileStrip: View {
     var userAvatar: String = "\u{1F60A}"
     var markers: [MarkerDot] = []
 
-    private let manualColor = Color(red: 0.6, green: 0.85, blue: 1.0)
-    private let historyColor = Color(red: 1.0, green: 0.6, blue: 0.4)
+    private let rabbitColor = Color(red: 0.6, green: 0.85, blue: 1.0)
+    private let houndColor = Color(red: 1.0, green: 0.6, blue: 0.4)
 
     private let pts: [CGPoint] = [
         CGPoint(x: 0, y: 88), CGPoint(x: 60, y: 70), CGPoint(x: 120, y: 62),
@@ -1192,17 +1470,11 @@ struct ProfileStrip: View {
 
                 ForEach(Array(ghosts.enumerated()), id: \.offset) { _, ghost in
                     let gx = CGFloat(ghost.progress) * 358
-                    let color = ghost.isManual ? manualColor : historyColor
-                    let emoji = ghost.isManual ? "\u{1F47B}" : "\u{1F3C6}"
-                    Circle()
-                        .fill(color)
-                        .opacity(0.85)
-                        .frame(width: 16, height: 16)
-                        .position(x: gx * sx, y: yAt(gx) * sy)
-
+                    let emoji = ghost.role.emoji
                     Text(emoji)
-                        .font(.system(size: 20))
-                        .position(x: gx * sx, y: yAt(gx) * sy - 16)
+                        .font(.system(size: 40))
+                        .scaleEffect(x: -1, y: 1)   // face uphill (left → right)
+                        .position(x: gx * sx, y: yAt(gx) * sy - 18)
                 }
             }
         }
@@ -1215,7 +1487,7 @@ struct ProfileStrip: View {
 struct RadarGhost {
     let gap: Double
     let emoji: String
-    let isManual: Bool
+    let role: GhostRole
 }
 
 struct GhostRadar: View {
@@ -1224,17 +1496,19 @@ struct GhostRadar: View {
 
     private let halfRange: Double = 50
 
-    private let ghostColors: [Color] = [
-        Color(red: 0.6, green: 0.85, blue: 1.0),
-        Color(red: 1.0, green: 0.6, blue: 0.4)
-    ]
+    private let rabbitColor = Color(red: 0.6, green: 0.85, blue: 1.0)
+    private let houndColor = Color(red: 1.0, green: 0.6, blue: 0.4)
+
+    private func ghostColor(_ rg: RadarGhost) -> Color {
+        rg.role == .rabbit ? rabbitColor : houndColor
+    }
 
     var body: some View {
         VStack(spacing: 4) {
             HStack {
                 Text("GHOST RADAR")
                     .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(ghostColors[0].opacity(0.7))
+                    .foregroundStyle(rabbitColor.opacity(0.7))
                 Spacer()
                 Text("\u{00B1}\(Int(halfRange)) ft window")
                     .font(.system(size: 9))
@@ -1263,17 +1537,18 @@ struct GhostRadar: View {
                             .position(x: x, y: barH / 2)
                     }
 
-                    ForEach(Array(radarGhosts.enumerated()), id: \.offset) { idx, rg in
+                    ForEach(Array(radarGhosts.enumerated()), id: \.offset) { _, rg in
                         let raw = -rg.gap / halfRange
                         let clamped = min(max(raw, -1.0), 1.0)
                         let inRange = abs(rg.gap) <= halfRange
-                        let color = ghostColors[idx % ghostColors.count]
+                        let color = ghostColor(rg)
 
                         if inRange {
                             let gx = midX + CGFloat(clamped) * midX
                             VStack(spacing: 0) {
                                 Text(rg.emoji)
-                                    .font(.system(size: 14))
+                                    .font(.system(size: 28))
+                                    .scaleEffect(x: -1, y: 1)   // face direction of travel
                                 Text("\(Int(abs(rg.gap))) ft")
                                     .font(.system(size: 8, weight: .bold))
                                     .foregroundStyle(color)
@@ -1281,13 +1556,14 @@ struct GhostRadar: View {
                             .position(x: gx, y: barH / 2)
                         } else {
                             let isAhead = rg.gap < 0
-                            let edgeX = isAhead ? geo.size.width - 16 : CGFloat(16)
+                            let edgeX = isAhead ? geo.size.width - 26 : CGFloat(26)
                             let arrow = isAhead ? "\u{25B6}" : "\u{25C0}"
 
                             VStack(spacing: 0) {
                                 HStack(spacing: 2) {
                                     Text(rg.emoji)
-                                        .font(.system(size: 12))
+                                        .font(.system(size: 24))
+                                        .scaleEffect(x: -1, y: 1)
                                     Text(arrow)
                                         .font(.system(size: 8))
                                         .foregroundStyle(color)
@@ -1301,11 +1577,11 @@ struct GhostRadar: View {
                     }
 
                     Text(userAvatar)
-                        .font(.system(size: 14))
-                        .position(x: midX, y: barH - 6)
+                        .font(.system(size: 28))
+                        .position(x: midX, y: barH - 16)
                 }
             }
-            .frame(height: 50)
+            .frame(height: 80)
             .clipShape(RoundedRectangle(cornerRadius: 6))
         }
     }
@@ -1349,7 +1625,7 @@ struct GhostPickerView: View {
                                     HStack(spacing: 16) {
                                         Text("\(String(format: "%.1f", ride.avgFeetPerMin)) ft/min avg")
                                         if let rpe = ride.rpe {
-                                            Text("RPE \(rpe)")
+                                            Text(rpeLabel(rpe))
                                                 .padding(.horizontal, 6)
                                                 .padding(.vertical, 1)
                                                 .background(Color.secondary.opacity(0.2))

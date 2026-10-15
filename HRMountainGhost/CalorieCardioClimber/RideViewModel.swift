@@ -125,8 +125,20 @@ final class RideViewModel: ObservableObject {
     @Published var feeling: String? = nil
     @Published var showRideSummary = false
 
+    // Pause / resume
+    @Published private(set) var isPaused = false
+    private var pausedAt: Date?
+    private var totalPausedTime: TimeInterval = 0
+    private var pauseIntervals: [(start: Date, end: Date)] = []
+
+    /// End date of the newest heart-rate sample received (for the freshness indicator).
+    @Published private(set) var lastHRSampleDate: Date? = nil
+
     // Ghosts (manual + history can run simultaneously)
     @Published var ghosts: [Ghost] = []
+
+    // Pre-ride readiness
+    @Published var currentReadiness: ReadinessLevel = .normal
 
     // HR Zone mode state
     @Published var currentZone: HRZone? = nil
@@ -166,9 +178,13 @@ final class RideViewModel: ObservableObject {
     /// True when the app fell back to calorie mode because max HR is unavailable.
     @Published private(set) var isCalorieFallback: Bool = false
 
-    /// Auto ghost pace calculated from recent workout history (ft/min).
-    /// nil if no history available.
-    @Published var autoGhostPace: Double? = nil
+    /// Auto-calculated Rabbit pace (best workout pace from last 42 days).
+    @Published var autoRabbitPace: Double? = nil
+    /// Auto-calculated Tortoise pace (50% of average workout pace from last 42 days).
+    @Published var autoHoundPace: Double? = nil
+
+    /// Legacy alias so ContentView .task doesn't break during transition.
+    var autoGhostPace: Double? { autoRabbitPace }
 
     let reader = HealthReader()
     private var startDate = Date()
@@ -234,6 +250,11 @@ final class RideViewModel: ObservableObject {
         recordedRestMarkers = []
         currentRestStartElapsed = 0
         currentRestStartElevation = 0
+        isPaused = false
+        pausedAt = nil
+        totalPausedTime = 0
+        pauseIntervals = []
+        lastHRSampleDate = nil
         for g in ghosts { g.reset() }
         isRunning = true
 
@@ -249,7 +270,36 @@ final class RideViewModel: ObservableObject {
         reader.start(from: startDate)
     }
 
+    /// STOP button — pauses the ride. The clock, climb, and ghosts freeze
+    /// until the rider taps Resume or End Ride.
+    func pause() {
+        guard isRunning, !isPaused else { return }
+        if isResting { resumeExercise() }
+        isSprinting = false
+        sprintTimeRemaining = 0
+        currentZone = nil
+        pausedAt = Date()
+        isPaused = true
+    }
+
+    /// Continue a paused ride. Paused time is not counted.
+    func resume() {
+        guard isPaused, let p = pausedAt else { return }
+        let now = Date()
+        totalPausedTime += now.timeIntervalSince(p)
+        pauseIntervals.append((start: p, end: now))
+        pausedAt = nil
+        isPaused = false
+        lastTickDate = nil   // avoid counting the pause in HR-zone climbing
+    }
+
+    /// End Ride — finishes the ride and shows the Save / Discard summary.
     func stop() {
+        if isPaused, let p = pausedAt {
+            pauseIntervals.append((start: p, end: Date()))
+        }
+        isPaused = false
+        pausedAt = nil
         reader.stop()
         isRunning = false
         currentZone = nil
@@ -275,9 +325,11 @@ final class RideViewModel: ObservableObject {
 
     /// Called twice a second by the screen.
     func tick() {
-        if isRunning {
+        if isRunning && !isPaused {
             let now = Date()
-            elapsed = now.timeIntervalSince(startDate)
+            // Seconds since the previous tick (used by the sprint countdown).
+            let tickDt = lastTickDate.map { now.timeIntervalSince($0) } ?? 0.5
+            elapsed = now.timeIntervalSince(startDate) - totalPausedTime
 
             // HR Zone climb: accumulate feet based on current zone.
             if climbMode == .hrZone,
@@ -298,7 +350,7 @@ final class RideViewModel: ObservableObject {
 
             // Sprint countdown.
             if isSprinting {
-                sprintTimeRemaining = max(0, sprintTimeRemaining - (lastTickDate.map { now.timeIntervalSince($0) } ?? 0.5))
+                sprintTimeRemaining = max(0, sprintTimeRemaining - tickDt)
                 if sprintTimeRemaining <= 0 {
                     isSprinting = false
                     sprintTimeRemaining = 0
@@ -338,7 +390,7 @@ final class RideViewModel: ObservableObject {
 
     /// Rider taps the Sprint button — start a 20-second sprint.
     func startSprint() {
-        guard isRunning, !isSprinting, !isResting else { return }
+        guard isRunning, !isPaused, !isSprinting, !isResting else { return }
         isSprinting = true
         sprintTimeRemaining = Self.sprintDuration
         sprintCount += 1
@@ -353,7 +405,7 @@ final class RideViewModel: ObservableObject {
 
     /// Rider taps Begin Rest — pause climbing effort and record position.
     func startRest() {
-        guard isRunning, !isSprinting, !isResting else { return }
+        guard isRunning, !isPaused, !isSprinting, !isResting else { return }
         isResting = true
         restStartTime = Date()
         restCount += 1
@@ -382,48 +434,50 @@ final class RideViewModel: ObservableObject {
         return elapsed - currentRestStartElapsed
     }
 
-    // MARK: - Ghost setup
+    // MARK: - Rabbit & Hound Ghost Setup
 
-    /// Set a manual ghost with a target pace.
-    func setManualGhost(name: String, feetPerMin: Double) {
-        removeGhost(where: {
-            if case .manual = $0.source { return true }; return false
-        })
-        ghosts.append(Ghost(name: name, feetPerMin: feetPerMin))
+    /// The Rabbit ghost (ahead of you — the pace you're chasing).
+    var rabbitGhost: Ghost? {
+        ghosts.first(where: { $0.role == .rabbit })
     }
 
-    /// Set a ghost from a saved ride (or best pace).
-    func setHistoryGhost(_ record: RideRecord) {
-        removeGhost(where: {
-            if case .history = $0.source { return true }; return false
-        })
-        ghosts.append(Ghost(record: record))
+    /// The Hound ghost (behind you — the pace you must stay ahead of).
+    var houndGhost: Ghost? {
+        ghosts.first(where: { $0.role == .hound })
     }
 
-    /// Set a ghost from the best pace in ride history.
-    func setBestPaceGhost() {
-        guard let best = RideStore.shared.rides.max(by: {
-            $0.avgFeetPerMin < $1.avgFeetPerMin
-        }) else { return }
-        removeGhost(where: {
-            if case .history = $0.source { return true }; return false
-        })
-        let g = Ghost(record: best)
-        ghosts.append(g)
+    /// Set up the Rabbit ghost with a given pace.
+    func setupRabbitGhost(pace: Double, name: String = "Hare") {
+        ghosts.removeAll(where: { $0.role == .rabbit })
+        ghosts.append(Ghost(name: name, feetPerMin: pace, role: .rabbit))
     }
 
-    /// Remove the manual ghost.
-    func clearManualGhost() {
-        removeGhost(where: {
-            if case .manual = $0.source { return true }; return false
-        })
+    /// Set up the Hound ghost with a given pace.
+    func setupHoundGhost(pace: Double, name: String = "Tortoise") {
+        ghosts.removeAll(where: { $0.role == .hound })
+        ghosts.append(Ghost(name: name, feetPerMin: pace, role: .hound))
     }
 
-    /// Remove the history ghost.
-    func clearHistoryGhost() {
-        removeGhost(where: {
-            if case .history = $0.source { return true }; return false
-        })
+    /// Set up the Rabbit ghost from a saved ride record.
+    func setupRabbitFromRecord(_ record: RideRecord) {
+        ghosts.removeAll(where: { $0.role == .rabbit })
+        ghosts.append(Ghost(record: record, role: .rabbit))
+    }
+
+    /// Set up the Hound ghost from a saved ride record.
+    func setupHoundFromRecord(_ record: RideRecord) {
+        ghosts.removeAll(where: { $0.role == .hound })
+        ghosts.append(Ghost(record: record, role: .hound))
+    }
+
+    /// Remove the rabbit ghost.
+    func clearRabbitGhost() {
+        ghosts.removeAll(where: { $0.role == .rabbit })
+    }
+
+    /// Remove the hound ghost.
+    func clearHoundGhost() {
+        ghosts.removeAll(where: { $0.role == .hound })
     }
 
     /// Remove all ghosts.
@@ -431,22 +485,40 @@ final class RideViewModel: ObservableObject {
         ghosts.removeAll()
     }
 
-    /// The current manual ghost, if any.
-    var manualGhost: Ghost? {
-        ghosts.first(where: {
-            if case .manual = $0.source { return true }; return false
-        })
+    /// Adjust a ghost's pace mid-ride by a delta (ft/min).
+    func adjustGhostPace(ghostId: UUID, delta: Double) {
+        if let ghost = ghosts.first(where: { $0.id == ghostId }) {
+            ghost.adjustPace(by: delta)
+        }
     }
 
-    /// The current history ghost, if any.
-    var historyGhost: Ghost? {
-        ghosts.first(where: {
-            if case .history = $0.source { return true }; return false
-        })
-    }
+    // MARK: - Readiness-Based Ghost Activation
 
-    private func removeGhost(where pred: (Ghost) -> Bool) {
-        ghosts.removeAll(where: pred)
+    /// Apply a readiness level: activate/deactivate ghosts accordingly.
+    /// - Fresh  → both Rabbit and Hound active
+    /// - Normal → Rabbit only
+    /// - Fatigued → Hound only (recovery day)
+    func applyReadiness(_ level: ReadinessLevel) {
+        currentReadiness = level
+        let activeRoles = level.activeRoles  // Set<String>
+
+        // Enable/disable the Rabbit ghost
+        if activeRoles.contains("rabbit") {
+            if rabbitGhost == nil, let pace = autoRabbitPace {
+                setupRabbitGhost(pace: pace)
+            }
+        } else {
+            clearRabbitGhost()
+        }
+
+        // Enable/disable the Hound ghost
+        if activeRoles.contains("hound") {
+            if houndGhost == nil, let pace = autoHoundPace {
+                setupHoundGhost(pace: pace)
+            }
+        } else {
+            clearHoundGhost()
+        }
     }
 
     // MARK: - Auto-select climb mode
@@ -463,38 +535,72 @@ final class RideViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Auto ghost pace from HealthKit
+    // MARK: - Auto dual ghost pace from HealthKit
 
-    /// Query Apple Health for workouts in the last 42 days and calculate
-    /// average pace (ft/min). Falls back to RideStore, then 10 ft/min.
-    func loadAutoGhostPace() async {
-        // Try HealthKit first: 42-day lookback
+    /// Tortoise pace as a fraction of the 42-day average pace.
+    static let tortoiseFraction = 0.50
+
+    /// Load auto-calculated paces for both ghosts:
+    /// - Hare (rabbit) = best single workout pace from last 42 days
+    /// - Tortoise (hound) = 50% of average workout pace from last 42 days
+    /// Falls back to RideStore, then defaults (12 / 6 ft/min).
+    func loadAutoGhostPaces() async {
         let massKg = weightLb * 0.45359237
-        let healthPace = await reader.averagePaceLast42Days(bodyMassKg: massKg > 0 ? massKg : 81.6)
-        if let pace = healthPace, pace > 0 {
-            autoGhostPace = pace
-            return
+        let effectiveMass = massKg > 0 ? massKg : 81.6
+
+        // Try HealthKit first
+        async let bestTask = reader.bestPaceLast42Days(bodyMassKg: effectiveMass)
+        async let avgTask = reader.averagePaceLast42Days(bodyMassKg: effectiveMass)
+        let best = await bestTask
+        let avg = await avgTask
+
+        if let bestPace = best, bestPace > 0 {
+            autoRabbitPace = bestPace
+        }
+        if let avgPace = avg, avgPace > 0 {
+            autoHoundPace = avgPace * Self.tortoiseFraction
         }
 
-        // Fallback: RideStore average
+        // Fallback: RideStore
         let rides = RideStore.shared.rides
-        if !rides.isEmpty {
-            let totalPace = rides.reduce(0.0) { $0 + $1.avgFeetPerMin }
-            let avg = totalPace / Double(rides.count)
-            if avg > 0 {
-                autoGhostPace = avg
-                return
+        if autoRabbitPace == nil, !rides.isEmpty {
+            if let bestRide = rides.max(by: { $0.avgFeetPerMin < $1.avgFeetPerMin }) {
+                autoRabbitPace = bestRide.avgFeetPerMin
             }
         }
+        if autoHoundPace == nil, !rides.isEmpty {
+            let totalPace = rides.reduce(0.0) { $0 + $1.avgFeetPerMin }
+            let avg = totalPace / Double(rides.count)
+            if avg > 0 { autoHoundPace = avg * Self.tortoiseFraction }
+        }
 
-        // Final fallback: 10 ft/min
-        autoGhostPace = 10.0
+        // Final fallback: defaults for new users
+        if autoRabbitPace == nil { autoRabbitPace = 12.0 }
+        if autoHoundPace == nil { autoHoundPace = 6.0 }
+    }
+
+    /// Legacy shim — kept so the ContentView .task compiles during transition.
+    func loadAutoGhostPace() async {
+        await loadAutoGhostPaces()
     }
 
     // MARK: - Private
 
+    /// Ask Apple Health right now for anything new (e.g. after the rider
+    /// comes back from the Health app, which forces a Watch sync).
+    func refreshFromHealth() {
+        reader.pollNow()
+    }
+
+    /// True if a sample time falls inside a paused stretch of the ride.
+    private func isDuringPause(_ date: Date) -> Bool {
+        if isPaused, let p = pausedAt, date >= p { return true }
+        return pauseIntervals.contains { date >= $0.start && date <= $0.end }
+    }
+
     private func receiveHeartRate(_ bpm: Double, _ sampleDate: Date) {
         heartRate = Int(bpm.rounded())
+        lastHRSampleDate = sampleDate
         let delay = max(0, Date().timeIntervalSince(sampleDate))
         lastDelay = delay
         delaySamples.append(delay)
@@ -502,6 +608,8 @@ final class RideViewModel: ObservableObject {
     }
 
     private func receiveEnergy(_ kcal: Double, _ sampleDate: Date) {
+        // Calories burned while paused don't count toward the climb.
+        guard !isDuringPause(sampleDate) else { return }
         activeKcal += kcal
         if climbMode == .calorie {
             recomputeTarget()

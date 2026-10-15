@@ -2,13 +2,17 @@
 //  CalorieCardioClimber_WatchApp.swift
 //  CalorieCardioClimber Watch App
 //
-//  Created by phillip shawn dobbs on 10/11/26.
+//  App entry point — activates WatchConnectivity on launch.
 //
 
 import SwiftUI
 
 @main
 struct CalorieCardioClimber_Watch_AppApp: App {
+    init() {
+        WatchSessionManager.shared.activate()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()

@@ -7,23 +7,30 @@ import HealthKit
 /// 1. HKObserverQuery — registers interest so HealthKit syncs from the Watch
 /// 2. enableBackgroundDelivery — tells HealthKit to deliver updates frequently
 /// 3. Polling every 5s via GCD timer — fallback that doesn't depend on RunLoop
-nonisolated final class HealthReader: @unchecked Sendable {
+nonisolated final class HealthReader: NSObject, HKWorkoutSessionDelegate, @unchecked Sendable {
     private let store = HKHealthStore()
     private var observerQueries: [HKQuery] = []
+    private var anchoredHRQuery: HKAnchoredObjectQuery?
     private var pollTimer: DispatchSourceTimer?
     private var startDate: Date?
     private var lastHRDate: Date?
     private var processedEnergySamples: Set<String> = []
+    private var workoutSession: HKWorkoutSession?
 
     var onHeartRate: (@Sendable (Double, Date) -> Void)?
     var onEnergy: (@Sendable (Double, Date) -> Void)?
     var onError: (@Sendable (String) -> Void)?
+
+    override init() {
+        super.init()
+    }
 
     func requestAccess() async throws {
         guard HKHealthStore.isHealthDataAvailable() else { return }
         let readTypes: Set<HKObjectType> = [
             HKQuantityType(.heartRate),
             HKQuantityType(.activeEnergyBurned),
+            HKQuantityType(.restingHeartRate),
             HKCharacteristicType(.dateOfBirth),
             HKCharacteristicType(.biologicalSex),
             HKWorkoutType.workoutType()
@@ -149,11 +156,67 @@ nonisolated final class HealthReader: @unchecked Sendable {
         return totalFeet / totalMinutes
     }
 
+    /// Query Apple Health for the single best climbing pace (ft/min) from
+    /// workouts in the last 42 days. Used as the Rabbit ghost pace.
+    /// Returns nil if no workouts found or HealthKit is unavailable.
+    func bestPaceLast42Days(bodyMassKg: Double = 81.6) async -> Double? {
+        guard HKHealthStore.isHealthDataAvailable() else { return nil }
+
+        let calendar = Calendar.current
+        guard let start = calendar.date(byAdding: .day, value: -42, to: Date()) else {
+            return nil
+        }
+
+        let predicate = HKQuery.predicateForSamples(
+            withStart: start, end: Date(), options: .strictStartDate
+        )
+        let sortByDate = NSSortDescriptor(
+            key: HKSampleSortIdentifierStartDate, ascending: false
+        )
+
+        let workouts: [HKWorkout]? = await withCheckedContinuation { cont in
+            let query = HKSampleQuery(
+                sampleType: HKWorkoutType.workoutType(),
+                predicate: predicate,
+                limit: 200,
+                sortDescriptors: [sortByDate]
+            ) { _, samples, error in
+                if let error = error {
+                    print("Best pace workout query error: \(error.localizedDescription)")
+                    cont.resume(returning: nil)
+                    return
+                }
+                cont.resume(returning: samples as? [HKWorkout])
+            }
+            store.execute(query)
+        }
+
+        guard let workouts = workouts, !workouts.isEmpty else { return nil }
+
+        var bestPace: Double = 0
+
+        for workout in workouts {
+            let kcal = workout.statistics(for: HKQuantityType(.activeEnergyBurned))?
+                .sumQuantity()?
+                .doubleValue(for: .kilocalorie()) ?? 0
+
+            let durationMin = workout.duration / 60.0
+            guard durationMin > 0, kcal > 0 else { continue }
+
+            let feet = ClimbMath.feet(kcal: kcal, massKg: bodyMassKg)
+            let pace = feet / durationMin
+            if pace > bestPace { bestPace = pace }
+        }
+
+        return bestPace > 0 ? bestPace : nil
+    }
+
     // MARK: - Live monitoring
 
     func start(from date: Date) {
         stop()
-        startDate = date
+        // Look back 60s to catch recently-synced Watch samples
+        startDate = date.addingTimeInterval(-60)
         lastHRDate = nil
         processedEnergySamples = []
 
@@ -183,9 +246,36 @@ nonisolated final class HealthReader: @unchecked Sendable {
         observerQueries = [hrObserver, energyObserver]
         observerQueries.forEach { store.execute($0) }
 
-        // 2. GCD timer polls every 5s as a reliable fallback
+        // 2. Anchored query for HR — push-based, fires when new samples land
+        let hrType = HKQuantityType(.heartRate)
+        let hrPredicate = HKQuery.predicateForSamples(
+            withStart: date, end: nil, options: .strictStartDate
+        )
+        let anchored = HKAnchoredObjectQuery(
+            type: hrType,
+            predicate: hrPredicate,
+            anchor: nil,
+            limit: HKObjectQueryNoLimit
+        ) { [weak self] _, samples, _, _, error in
+            if let error = error {
+                self?.onError?("Anchored HR error: \(error.localizedDescription)")
+                return
+            }
+            self?.handleHRSamples(samples)
+        }
+        anchored.updateHandler = { [weak self] _, samples, _, _, error in
+            if let error = error {
+                self?.onError?("Anchored HR update error: \(error.localizedDescription)")
+                return
+            }
+            self?.handleHRSamples(samples)
+        }
+        anchoredHRQuery = anchored
+        store.execute(anchored)
+
+        // 3. GCD timer polls every 5s as a reliable fallback
         let timer = DispatchSource.makeTimerSource(queue: .global(qos: .userInitiated))
-        timer.schedule(deadline: .now(), repeating: 5.0)
+        timer.schedule(deadline: .now(), repeating: 2.0)
         timer.setEventHandler { [weak self] in
             self?.pollHeartRate()
             self?.pollEnergy()
@@ -201,11 +291,139 @@ nonisolated final class HealthReader: @unchecked Sendable {
     func stop() {
         pollTimer?.cancel()
         pollTimer = nil
+        if let aq = anchoredHRQuery {
+            store.stop(aq)
+            anchoredHRQuery = nil
+        }
         observerQueries.forEach { store.stop($0) }
         observerQueries.removeAll()
+        stopReadinessSession()
+    }
+
+    // MARK: - Direct HR fetch (no time filter — gets whatever is newest)
+
+    /// Fetch the single most recent HR sample in HealthKit, regardless of
+    /// when it was recorded. This always returns something if the Watch has
+    /// ever synced HR data, even if the sample is a few minutes old.
+    func fetchLatestHR(completion: @escaping @Sendable (Double?, Date?) -> Void) {
+        let sortByDate = NSSortDescriptor(
+            key: HKSampleSortIdentifierEndDate, ascending: false
+        )
+        let query = HKSampleQuery(
+            sampleType: HKQuantityType(.heartRate),
+            predicate: nil,
+            limit: 1,
+            sortDescriptors: [sortByDate]
+        ) { _, samples, _ in
+            guard let sample = samples?.first as? HKQuantitySample else {
+                completion(nil, nil)
+                return
+            }
+            let unit = HKUnit.count().unitDivided(by: HKUnit.minute())
+            completion(sample.quantity.doubleValue(for: unit), sample.endDate)
+        }
+        store.execute(query)
+    }
+
+    /// Fetch every heart-rate sample recorded between two times, oldest first.
+    /// Used by the Readiness Check to sort readings into phases by the time
+    /// they were actually measured — even if the Watch synced them later.
+    func fetchHRSamples(from start: Date, to end: Date) async -> [(bpm: Double, date: Date)] {
+        guard HKHealthStore.isHealthDataAvailable() else { return [] }
+        let predicate = HKQuery.predicateForSamples(
+            withStart: start, end: end, options: []
+        )
+        let sortByDate = NSSortDescriptor(
+            key: HKSampleSortIdentifierStartDate, ascending: true
+        )
+        return await withCheckedContinuation { cont in
+            let query = HKSampleQuery(
+                sampleType: HKQuantityType(.heartRate),
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: [sortByDate]
+            ) { _, samples, _ in
+                let unit = HKUnit.count().unitDivided(by: HKUnit.minute())
+                let result = (samples as? [HKQuantitySample] ?? []).map {
+                    (bpm: $0.quantity.doubleValue(for: unit), date: $0.startDate)
+                }
+                cont.resume(returning: result)
+            }
+            store.execute(query)
+        }
+    }
+
+    // MARK: - Workout Session (triggers real-time Watch → iPhone HR sync)
+
+    /// Start a lightweight workout session so the Watch streams HR in real time.
+    /// Available on iOS 17+ — mirrors to the paired Watch automatically.
+    func startReadinessSession() {
+        guard HKHealthStore.isHealthDataAvailable() else { return }
+        if #available(iOS 26.0, *) {
+            do {
+                let config = HKWorkoutConfiguration()
+                config.activityType = .cycling
+                config.locationType = .indoor
+
+                let session = try HKWorkoutSession(healthStore: store, configuration: config)
+                session.delegate = self
+                session.startActivity(with: Date())
+                workoutSession = session
+            } catch {
+                onError?("Could not start readiness HR session: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// End the readiness workout session. The workout is discarded (not saved).
+    func stopReadinessSession() {
+        workoutSession?.end()
+        workoutSession = nil
+    }
+
+    // MARK: - HKWorkoutSessionDelegate
+
+    func workoutSession(_ workoutSession: HKWorkoutSession,
+                        didChangeTo toState: HKWorkoutSessionState,
+                        from fromState: HKWorkoutSessionState,
+                        date: Date) {
+        // No action needed — session just needs to be running
+    }
+
+    func workoutSession(_ workoutSession: HKWorkoutSession,
+                        didFailWithError error: Error) {
+        onError?("Workout session error: \(error.localizedDescription)")
+    }
+
+    /// Process HR samples from the anchored query's push delivery.
+    private func handleHRSamples(_ samples: [HKSample]?) {
+        guard let samples = samples as? [HKQuantitySample],
+              !samples.isEmpty else { return }
+        let unit = HKUnit.count().unitDivided(by: HKUnit.minute())
+        // Find the most recent sample
+        var latest: HKQuantitySample?
+        for sample in samples {
+            if let current = latest {
+                if sample.endDate > current.endDate { latest = sample }
+            } else {
+                latest = sample
+            }
+        }
+        guard let best = latest else { return }
+        if let lastDate = lastHRDate, best.endDate <= lastDate { return }
+        lastHRDate = best.endDate
+        onHeartRate?(best.quantity.doubleValue(for: unit), best.endDate)
     }
 
     // MARK: - Polling
+
+    /// Check Apple Health immediately for new heart rate and calories.
+    /// Call this when the app returns to the foreground (e.g. after the
+    /// rider opened the Health app to force a Watch sync).
+    func pollNow() {
+        pollHeartRate()
+        pollEnergy()
+    }
 
     private func pollHeartRate() {
         guard let startDate = startDate else { return }
@@ -257,22 +475,17 @@ nonisolated final class HealthReader: @unchecked Sendable {
             guard let samples = samples as? [HKQuantitySample],
                   !samples.isEmpty else { return }
             let unit = HKUnit.kilocalorie()
-            var newKcal = 0.0
-            var newestDate: Date?
-            for sample in samples {
+            // Deliver each new sample with its own end date so the ride can
+            // ignore calories that were burned while the ride was paused.
+            for sample in samples.reversed() {   // oldest first
                 let id = sample.uuid.uuidString
                 guard self?.processedEnergySamples.contains(id) == false
                 else { continue }
                 self?.processedEnergySamples.insert(id)
-                newKcal += sample.quantity.doubleValue(for: unit)
-                if let current = newestDate {
-                    if sample.endDate > current { newestDate = sample.endDate }
-                } else {
-                    newestDate = sample.endDate
+                let kcal = sample.quantity.doubleValue(for: unit)
+                if kcal > 0 {
+                    self?.onEnergy?(kcal, sample.endDate)
                 }
-            }
-            if newKcal > 0, let newest = newestDate {
-                self?.onEnergy?(newKcal, newest)
             }
         }
         store.execute(query)

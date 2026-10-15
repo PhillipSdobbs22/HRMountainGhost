@@ -1,6 +1,26 @@
 import Foundation
 import Combine
 
+/// The psychological role of a ghost rival.
+/// Internal raw values stay "rabbit"/"hound" so saved data keeps working;
+/// the user-facing names are the Hare and the Tortoise.
+enum GhostRole: String, Codable {
+    /// Hare — ahead of you, the pace you're chasing (best pace).
+    case rabbit
+    /// Tortoise — behind you, the pace you must stay ahead of (50% of average).
+    case hound
+
+    /// Name shown to the user.
+    var displayName: String {
+        self == .rabbit ? "Hare" : "Tortoise"
+    }
+
+    /// Emoji shown to the user.
+    var emoji: String {
+        self == .rabbit ? "\u{1F407}" : "\u{1F422}"  // 🐇 / 🐢
+    }
+}
+
 /// Defines how a ghost climbs the mountain.
 enum GhostSource: Codable {
     /// User-configured manual pace (feet per minute).
@@ -14,28 +34,36 @@ final class Ghost: ObservableObject, Identifiable {
     let id = UUID()
     let name: String
     let source: GhostSource
+    let role: GhostRole
     @Published private(set) var currentFeet: Double = 0
 
-    // For manual ghosts: constant rate.
-    private let feetPerMin: Double
+    /// Current pace — mutable so the user can adjust mid-ride.
+    @Published var feetPerMin: Double
 
     // For history ghosts: recorded samples to replay.
     private let samples: [ElevationSample]
 
-    /// Create a manual-pace ghost.
-    init(name: String, feetPerMin: Double) {
+    /// Create a manual-pace ghost with a role.
+    init(name: String, feetPerMin: Double, role: GhostRole = .rabbit) {
         self.name = name
         self.source = .manual(feetPerMin: feetPerMin, name: name)
         self.feetPerMin = feetPerMin
         self.samples = []
+        self.role = role
     }
 
     /// Create a ghost from a saved ride record.
-    init(record: RideRecord) {
+    init(record: RideRecord, role: GhostRole = .rabbit) {
         self.name = record.label ?? Self.dateLabel(record.date)
         self.source = .history(rideId: record.id)
         self.feetPerMin = record.avgFeetPerMin
         self.samples = record.samples
+        self.role = role
+    }
+
+    /// Emoji for this ghost's role.
+    var emoji: String {
+        role.emoji  // 🐇 Hare / 🐢 Tortoise
     }
 
     /// Advance ghost position based on elapsed seconds.
@@ -56,6 +84,11 @@ final class Ghost: ObservableObject, Identifiable {
 
     func reset() {
         currentFeet = 0
+    }
+
+    /// Adjust pace mid-ride by a delta (ft/min).
+    func adjustPace(by delta: Double) {
+        feetPerMin = max(1, feetPerMin + delta)
     }
 
     /// Linear interpolation through the recorded samples.

@@ -9,6 +9,12 @@ import SwiftUI
 
 @main
 struct CalorieCardioClimberApp: App {
+    init() {
+        // Activate WatchConnectivity so the iPhone can receive
+        // live HR from the companion Watch app.
+        PhoneConnectivityProvider.shared.activate()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
