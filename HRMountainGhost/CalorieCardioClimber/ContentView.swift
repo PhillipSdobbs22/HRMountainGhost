@@ -6,6 +6,10 @@ import Combine
 
 private let navy = Color(red: 0.043, green: 0.071, blue: 0.125)
 private let yellow = Color(red: 1.0, green: 0.831, blue: 0.0)
+private let raceGreen = Color(red: 0.24, green: 0.86, blue: 0.52)
+private let raceRed = Color(red: 1.0, green: 0.36, blue: 0.36)
+private let hareColor = Color(red: 0.62, green: 0.85, blue: 1.0)
+private let tortoiseColor = Color(red: 1.0, green: 0.69, blue: 0.54)
 
 // MARK: - Root TabView
 
@@ -72,7 +76,10 @@ struct ClimbTab: View {
             navy.ignoresSafeArea()
             ScrollView {
                 VStack(spacing: 14) {
-                    header
+                    tiles
+                    if vm.isRunning {
+                        SyncWatchRow(lastSampleDate: vm.lastHRSampleDate)
+                    }
                     // Nudge banner when falling back to calorie mode
                     if vm.isCalorieFallback {
                         HStack(spacing: 8) {
@@ -87,32 +94,52 @@ struct ClimbTab: View {
                         .background(Color.orange.opacity(0.15))
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                     }
-                    progressBar
-                    tiles
-                    if vm.isRunning {
-                        HRFreshnessBar(lastSampleDate: vm.lastHRSampleDate)
-                    }
                     if vm.isRunning && !vm.isPaused && vm.climbMode == .hrZone {
                         zoneIndicator
                     }
-                    ForEach(vm.ghosts) { ghost in
-                        ghostRow(ghost)
+                    if !vm.ghosts.isEmpty {
+                        PaceGauge(
+                            avgPace: avgFtPerMin,
+                            nowPace: vm.currentPace,
+                            harePace: vm.rabbitGhost?.feetPerMin,
+                            tortoisePace: vm.houndGhost?.feetPerMin,
+                            statusText: raceStatus,
+                            hint: vm.isRunning && !showPaceAdjust ? "Tap the gauge to adjust ghost paces" : nil
+                        )
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            guard vm.isRunning else { return }
+                            withAnimation(.easeInOut(duration: 0.2)) { showPaceAdjust.toggle() }
+                        }
+                        if vm.isRunning && showPaceAdjust {
+                            paceAdjustPanel
+                        }
                     }
-                    Text("MOUNTAIN PROFILE")
+                    header
+                    progressBar
+                    Text("RACE PROFILE")
                         .font(.footnote.bold())
                         .foregroundStyle(yellow)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     ProfileStrip(
                         progress: progress,
                         ghosts: vm.ghosts.map { g in
-                            GhostDot(progress: min(max(g.currentFeet / vm.mountain.totalGainFt, 0), 1), name: g.name, role: g.role)
+                            GhostDot(
+                                progress: min(max(g.currentFeet / vm.mountain.totalGainFt, 0), 1),
+                                name: g.name,
+                                role: g.role,
+                                feet: g.currentFeet
+                            )
                         },
                         accent: yellow,
                         userAvatar: userAvatar,
-                        markers: sprintRestMarkers
+                        markers: sprintRestMarkers,
+                        goalFt: vm.mountain.totalGainFt,
+                        userFeet: vm.displayedFt,
+                        userFeetColor: userFeetColor
                     )
                     if !vm.ghosts.isEmpty {
-                        GhostRadar(
+                        Lidar(
                             radarGhosts: vm.ghosts.map { g in
                                 RadarGhost(
                                     gap: vm.displayedFt - g.currentFeet,
@@ -187,8 +214,10 @@ struct ClimbTab: View {
             ForEach(HRZone.allCases, id: \.rawValue) { zone in
                 let active = vm.currentZone == zone
                 VStack(spacing: 2) {
-                    Text("Z\(zone.rawValue)")
+                    Text(effectiveMaxHR > 0 ? zone.bpmRangeShort(maxHR: effectiveMaxHR) : "Z\(zone.rawValue)")
                         .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
                     Text(zone.label)
                         .font(.system(size: 8))
                     Text("\(Int(zone.feetPerMin))")
@@ -218,22 +247,42 @@ struct ClimbTab: View {
     // MARK: - Existing views
 
     private var header: some View {
-        VStack(spacing: 2) {
-            HStack {
-                Text(vm.mountain.name).font(.title2.bold())
-                Spacer()
-                Text("\(Int(vm.displayedFt)) / \(Int(vm.mountain.totalGainFt)) ft").font(.title3.bold())
-            }
-            if vm.isRunning || vm.displayedFt > 0 {
-                HStack {
-                    Spacer()
-                    Text("\(String(format: "%.1f", avgFtPerMin)) ft/min")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(yellow)
-                }
-            }
+        HStack {
+            Text(vm.mountain.name).font(.title2.bold())
+            Spacer()
+            Text(etaText).font(.title3.bold())
         }
         .foregroundStyle(.white)
+    }
+
+    /// Time left to the summit at your average pace.
+    private var etaText: String {
+        let goal = vm.mountain.totalGainFt
+        if goal > 0 && vm.displayedFt >= goal { return "Summit!" }
+        if !vm.isRunning && vm.displayedFt == 0 { return "\(Int(goal)) ft goal" }
+        let pace = avgFtPerMin
+        guard pace > 0.5, vm.elapsed >= 30 else { return "ETA --" }
+        let mins = Int(((goal - vm.displayedFt) / pace).rounded(.up))
+        return mins < 60 ? "ETA \(mins) min" : "ETA \(mins / 60) h \(mins % 60) min"
+    }
+
+    /// Green = ahead of every ghost, red = last place, yellow = in between.
+    private var userFeetColor: Color {
+        guard !vm.ghosts.isEmpty else { return yellow }
+        let ahead = vm.ghosts.filter { $0.currentFeet > vm.displayedFt }.count
+        if ahead == 0 { return raceGreen }
+        if ahead == vm.ghosts.count { return raceRed }
+        return yellow
+    }
+
+    /// One-line race status under the Pace Gauge.
+    private var raceStatus: String {
+        if !vm.isRunning && vm.displayedFt == 0 { return "Tap START to race" }
+        let you = vm.displayedFt
+        if let hare = vm.rabbitGhost, you >= hare.currentFeet { return "Ahead of the Hare — keep it up" }
+        if let tortoise = vm.houndGhost, you < tortoise.currentFeet { return "The Tortoise is ahead — pick it up" }
+        if vm.rabbitGhost != nil { return "Chasing the Hare" }
+        return "Ahead of the Tortoise"
     }
 
     private var progressBar: some View {
@@ -249,100 +298,55 @@ struct ClimbTab: View {
     private var tiles: some View {
         HStack(spacing: 8) {
             Tile(value: vm.heartRate.map { String($0) } ?? "--", label: "HR bpm", icon: "heart.fill", iconColor: .red)
-            Tile(value: String(Int(vm.activeKcal)), label: "Active kcal")
-            Tile(value: timeString(vm.elapsed), label: "Time", icon: "clock.fill", iconColor: navy)
+            Tile(value: String(Int(vm.activeKcal)), label: "Active kcal", icon: "flame.fill", iconColor: .orange)
+            Tile(value: timeString(vm.elapsed), label: "Time", icon: "clock", iconColor: navy)
         }
     }
 
-    private func gapColor(for ghost: Ghost) -> Color {
-        let gap = vm.displayedFt - ghost.currentFeet
-        if gap >= 0 {
-            let intensity = min(gap / 100.0, 1.0)
-            return Color(
-                red: 0.3 - 0.3 * intensity,
-                green: 0.85,
-                blue: 0.3 - 0.2 * intensity
-            )
-        } else {
-            let deficit = min(abs(gap) / 150.0, 1.0)
-            if deficit < 0.5 {
-                let t = deficit / 0.5
-                return Color(red: 1.0, green: 0.85 - 0.35 * t, blue: 0.1 * (1.0 - t))
-            } else {
-                let t = (deficit - 0.5) / 0.5
-                return Color(red: 1.0, green: 0.5 - 0.4 * t, blue: 0.0)
-            }
-        }
-    }
+    @State private var showPaceAdjust = false
 
-    private func gapString(for ghost: Ghost) -> String {
-        let gap = vm.displayedFt - ghost.currentFeet
-        if abs(gap) < 1 { return "TIED" }
-        let sign = gap > 0 ? "+" : ""
-        return "\(sign)\(Int(gap)) ft"
-    }
-
-    @State private var adjustingGhostId: UUID? = nil
-
-    private func ghostRow(_ ghost: Ghost) -> some View {
-        let roleEmoji = ghost.emoji  // 🐇 Hare or 🐢 Tortoise
-
-        return VStack(spacing: 4) {
-            HStack(spacing: 8) {
-                Tile(
-                    value: "\(Int(ghost.currentFeet)) ft",
-                    label: "\(roleEmoji) \(ghost.name)"
-                )
-                // Tap the gap tile during a ride to show pace stepper
-                Tile(
-                    value: gapString(for: ghost),
-                    label: "Gap",
-                    bgColor: gapColor(for: ghost)
-                )
-                .onTapGesture {
-                    guard vm.isRunning else { return }
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        adjustingGhostId = adjustingGhostId == ghost.id ? nil : ghost.id
-                    }
-                }
-            }
-
-            // Mid-ride pace stepper
-            if vm.isRunning && adjustingGhostId == ghost.id {
+    /// Mid-ride ghost pace steppers (opened by tapping the Pace Gauge).
+    private var paceAdjustPanel: some View {
+        VStack(spacing: 8) {
+            ForEach(vm.ghosts) { ghost in
                 HStack(spacing: 12) {
+                    Text("\(ghost.emoji) \(ghost.role.displayName)")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.white)
+                        .frame(width: 110, alignment: .leading)
+                    Spacer()
                     Button {
                         vm.adjustGhostPace(ghostId: ghost.id, delta: -2)
                     } label: {
                         Image(systemName: "minus.circle.fill")
                             .font(.title2)
-                            .foregroundStyle(.white.opacity(0.8))
+                            .foregroundStyle(.white)
                     }
-
+                    .accessibilityLabel("Slow down \(ghost.role.displayName)")
                     VStack(spacing: 1) {
                         Text(String(format: "%.0f", ghost.feetPerMin))
                             .font(.system(size: 18, weight: .bold, design: .rounded))
                             .foregroundStyle(yellow)
                         Text("ft/min")
                             .font(.system(size: 10))
-                            .foregroundStyle(.white.opacity(0.6))
+                            .foregroundStyle(.white)
                     }
-                    .frame(width: 70)
-
+                    .frame(width: 60)
                     Button {
                         vm.adjustGhostPace(ghostId: ghost.id, delta: 2)
                     } label: {
                         Image(systemName: "plus.circle.fill")
                             .font(.title2)
-                            .foregroundStyle(.white.opacity(0.8))
+                            .foregroundStyle(.white)
                     }
+                    .accessibilityLabel("Speed up \(ghost.role.displayName)")
                 }
-                .padding(.vertical, 6)
-                .padding(.horizontal, 16)
-                .background(Color(white: 0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
         }
+        .padding(12)
+        .background(Color(white: 0.12))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .transition(.opacity.combined(with: .scale(scale: 0.95)))
     }
 
     private let rpeLabels = ["Really Easy", "Easy", "Not Easy", "Hard", "Really Hard"]
@@ -1026,7 +1030,7 @@ struct SettingsTab: View {
                                     .frame(width: 30)
                                 Text(zone.label)
                                     .frame(width: 70, alignment: .leading)
-                                Text(zone.rangeLabel)
+                                Text(effectiveMaxHR > 0 ? zone.bpmRangeLabel(maxHR: effectiveMaxHR) : zone.rangeLabel)
                                     .foregroundStyle(.secondary)
                                 Spacer()
                                 Text("\(Int(zone.feetPerMin)) ft/min")
@@ -1177,7 +1181,7 @@ struct SettingsTab: View {
                 } header: {
                     Text("Your Ghosts")
                 } footer: {
-                    Text("The Hare is the pace you're trying to beat. The Tortoise is the pace you must stay ahead of. Both are auto-calculated from your last 42 days of Apple Health workouts. Tap a ghost's gap tile during a ride to adjust pace on the fly.")
+                    Text("The Hare is the pace you're trying to beat. The Tortoise is the pace you must stay ahead of. Both are auto-calculated from your last 42 days of Apple Health workouts. Tap the Pace Gauge during a ride to adjust ghost paces on the fly.")
                 }
             }
             .navigationTitle("Settings")
@@ -1389,6 +1393,7 @@ struct GhostDot {
     let progress: Double
     let name: String
     let role: GhostRole
+    var feet: Double = 0
 }
 
 struct MarkerDot {
@@ -1403,9 +1408,9 @@ struct ProfileStrip: View {
     let accent: Color
     var userAvatar: String = "\u{1F60A}"
     var markers: [MarkerDot] = []
-
-    private let rabbitColor = Color(red: 0.6, green: 0.85, blue: 1.0)
-    private let houndColor = Color(red: 1.0, green: 0.6, blue: 0.4)
+    var goalFt: Double = 0
+    var userFeet: Double = 0
+    var userFeetColor: Color = .white
 
     private let pts: [CGPoint] = [
         CGPoint(x: 0, y: 88), CGPoint(x: 60, y: 70), CGPoint(x: 120, y: 62),
@@ -1460,130 +1465,382 @@ struct ProfileStrip: View {
                 }
 
                 Image(systemName: "flag.checkered")
-                    .font(.system(size: 18))
+                    .font(.system(size: 22))
                     .foregroundStyle(.white)
-                    .position(x: 358 * sx, y: yAt(358) * sy - 16)
+                    .position(x: 358 * sx - 12, y: yAt(358) * sy - 16)
 
-                Text(userAvatar)
-                    .font(.system(size: 32))
-                    .position(x: cx * sx, y: yAt(cx) * sy - 8)
+                // Climb goal under the summit flag
+                Text("\(Int(goalFt)) ft")
+                    .font(.system(size: 13, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white)
+                    .position(x: 358 * sx - 26, y: yAt(358) * sy + 18)
 
                 ForEach(Array(ghosts.enumerated()), id: \.offset) { _, ghost in
                     let gx = CGFloat(ghost.progress) * 358
-                    let emoji = ghost.role.emoji
-                    Text(emoji)
+                    let gy = yAt(gx) * sy
+                    Text(ghost.role.emoji)
                         .font(.system(size: 40))
                         .scaleEffect(x: -1, y: 1)   // face uphill (left → right)
-                        .position(x: gx * sx, y: yAt(gx) * sy - 18)
+                        .position(x: gx * sx, y: gy - 18)
+                    Text("\(Int(ghost.feet)) ft")
+                        .font(.system(size: 12, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.white)
+                        .position(x: gx * sx, y: gy + 16)
                 }
+
+                Text(userAvatar)
+                    .font(.system(size: 34))
+                    .position(x: cx * sx, y: yAt(cx) * sy - 14)
+                Text("\(Int(userFeet)) ft")
+                    .font(.system(size: 13, weight: .heavy, design: .rounded))
+                    .foregroundStyle(userFeetColor)
+                    .position(x: cx * sx, y: yAt(cx) * sy + 18)
             }
         }
-        .frame(height: 130)
+        .frame(height: 170)
+        .padding(.top, 28)
     }
 }
 
-// MARK: - Ghost Radar
+// MARK: - LIDAR (ghost radar with lanes + auto-zoom)
 
 struct RadarGhost {
+    /// Your feet minus the ghost's feet (positive = you're ahead).
     let gap: Double
     let emoji: String
     let role: GhostRole
 }
 
-struct GhostRadar: View {
+struct Lidar: View {
     let radarGhosts: [RadarGhost]
     var userAvatar: String = "\u{1F60A}"
 
-    private let halfRange: Double = 50
+    private let laneHeight: CGFloat = 58
 
-    private let rabbitColor = Color(red: 0.6, green: 0.85, blue: 1.0)
-    private let houndColor = Color(red: 1.0, green: 0.6, blue: 0.4)
+    /// Window widens automatically so ghosts show at their true distance.
+    private var halfRange: Double {
+        let maxGap = radarGhosts.map { abs($0.gap) }.max() ?? 0
+        let needed = maxGap * 1.15
+        let steps: [Double] = [50, 100, 150, 200, 300, 500]
+        return steps.first(where: { $0 >= needed }) ?? 500
+    }
 
-    private func ghostColor(_ rg: RadarGhost) -> Color {
-        rg.role == .rabbit ? rabbitColor : houndColor
+    /// Hare lanes on top, you in the middle, Tortoise lanes on the bottom.
+    private var lanes: [RadarGhost?] {
+        let hares = radarGhosts.filter { $0.role == .rabbit }.map { Optional($0) }
+        let tortoises = radarGhosts.filter { $0.role == .hound }.map { Optional($0) }
+        return hares + [nil] + tortoises
+    }
+
+    private func color(_ role: GhostRole) -> Color {
+        role == .rabbit ? hareColor : tortoiseColor
     }
 
     var body: some View {
         VStack(spacing: 4) {
             HStack {
-                Text("GHOST RADAR")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(rabbitColor.opacity(0.7))
+                Text("LIDAR")
+                    .font(.footnote.bold())
+                    .foregroundStyle(hareColor)
                 Spacer()
                 Text("\u{00B1}\(Int(halfRange)) ft window")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.white.opacity(0.4))
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.75))
             }
 
             GeometryReader { geo in
-                let midX = geo.size.width / 2
-                let barH = geo.size.height
+                let w = geo.size.width
+                let midX = w / 2
+                let usable = midX - 30
+                let totalH = laneHeight * CGFloat(lanes.count)
 
-                ZStack {
-                    RoundedRectangle(cornerRadius: 4)
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 6)
                         .fill(Color(white: 0.15))
 
+                    // Lane dividers
+                    ForEach(1..<max(lanes.count, 1), id: \.self) { i in
+                        Rectangle()
+                            .fill(Color.white.opacity(0.12))
+                            .frame(width: w, height: 1)
+                            .position(x: midX, y: laneHeight * CGFloat(i))
+                    }
+                    // Half-window guides
+                    ForEach([-0.5, 0.5], id: \.self) { f in
+                        Rectangle()
+                            .fill(Color.white.opacity(0.12))
+                            .frame(width: 1, height: totalH)
+                            .position(x: midX + CGFloat(f) * usable, y: totalH / 2)
+                    }
+                    // You are here
                     Rectangle()
                         .fill(yellow)
-                        .frame(width: 2, height: barH)
-                        .position(x: midX, y: barH / 2)
+                        .frame(width: 2, height: totalH)
+                        .position(x: midX, y: totalH / 2)
 
-                    ForEach([-25, 25], id: \.self) { offset in
-                        let frac = Double(offset) / halfRange
-                        let x = midX + CGFloat(frac) * midX
-                        Rectangle()
-                            .fill(Color.white.opacity(0.15))
-                            .frame(width: 1, height: barH * 0.4)
-                            .position(x: x, y: barH / 2)
-                    }
+                    ForEach(Array(lanes.enumerated()), id: \.offset) { idx, lane in
+                        let laneMid = laneHeight * (CGFloat(idx) + 0.5)
+                        if let rg = lane {
+                            let c = color(rg.role)
+                            Text(rg.role.displayName.uppercased())
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.75))
+                                .position(x: 34, y: laneHeight * CGFloat(idx) + 8)
 
-                    ForEach(Array(radarGhosts.enumerated()), id: \.offset) { _, rg in
-                        let raw = -rg.gap / halfRange
-                        let clamped = min(max(raw, -1.0), 1.0)
-                        let inRange = abs(rg.gap) <= halfRange
-                        let color = ghostColor(rg)
-
-                        if inRange {
-                            let gx = midX + CGFloat(clamped) * midX
-                            VStack(spacing: 0) {
-                                Text(rg.emoji)
-                                    .font(.system(size: 28))
-                                    .scaleEffect(x: -1, y: 1)   // face direction of travel
-                                Text("\(Int(abs(rg.gap))) ft")
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundStyle(color)
-                            }
-                            .position(x: gx, y: barH / 2)
-                        } else {
-                            let isAhead = rg.gap < 0
-                            let edgeX = isAhead ? geo.size.width - 26 : CGFloat(26)
-                            let arrow = isAhead ? "\u{25B6}" : "\u{25C0}"
-
+                            let frac = -rg.gap / halfRange
+                            let inRange = abs(rg.gap) <= halfRange
+                            let x = inRange
+                                ? midX + CGFloat(frac) * usable
+                                : (rg.gap < 0 ? w - 30 : 30)
                             VStack(spacing: 0) {
                                 HStack(spacing: 2) {
+                                    if !inRange && rg.gap > 0 {
+                                        Text("\u{25C0}").font(.system(size: 9)).foregroundStyle(c)
+                                    }
                                     Text(rg.emoji)
-                                        .font(.system(size: 24))
-                                        .scaleEffect(x: -1, y: 1)
-                                    Text(arrow)
-                                        .font(.system(size: 8))
-                                        .foregroundStyle(color)
+                                        .font(.system(size: 26))
+                                        .scaleEffect(x: -1, y: 1)   // face direction of travel
+                                    if !inRange && rg.gap < 0 {
+                                        Text("\u{25B6}").font(.system(size: 9)).foregroundStyle(c)
+                                    }
                                 }
-                                Text("\(Int(abs(rg.gap))) ft")
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundStyle(color)
+                                Text(abs(rg.gap) < 1 ? "TIED" : "\(Int(abs(rg.gap))) ft")
+                                    .font(.system(size: 10, weight: .heavy))
+                                    .foregroundStyle(c)
                             }
-                            .position(x: edgeX, y: barH / 2)
+                            .position(x: x, y: laneMid + 6)
+                        } else {
+                            Text("\u{25C0} behind")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.white.opacity(0.75))
+                                .position(x: 40, y: laneMid)
+                            Text("ahead \u{25B6}")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.white.opacity(0.75))
+                                .position(x: w - 40, y: laneMid)
+                            Text(userAvatar)
+                                .font(.system(size: 28))
+                                .position(x: midX, y: laneMid)
                         }
                     }
-
-                    Text(userAvatar)
-                        .font(.system(size: 28))
-                        .position(x: midX, y: barH - 16)
                 }
             }
-            .frame(height: 80)
+            .frame(height: laneHeight * CGFloat(lanes.count))
             .clipShape(RoundedRectangle(cornerRadius: 6))
         }
+    }
+}
+
+// MARK: - Pace Gauge
+
+/// Semicircle gauge: Tortoise and Hare paces as markers, needles for your
+/// average pace (solid white) and your pace right now (dashed blue).
+struct PaceGauge: View {
+    let avgPace: Double
+    let nowPace: Double
+    let harePace: Double?
+    let tortoisePace: Double?
+    let statusText: String
+    var hint: String? = nil
+
+    private let nowColor = Color(red: 0.43, green: 0.78, blue: 1.0)
+    private let orangeZone = Color(red: 1.0, green: 0.48, blue: 0.24)
+    private let size = CGSize(width: 320, height: 196)
+    private var center: CGPoint { CGPoint(x: 160, y: 168) }
+    private let radius: CGFloat = 116
+
+    /// Top of the scale: about twice the Hare's pace, rounded up to 5.
+    private var scaleMax: Double {
+        let base = max((harePace ?? 0) * 2, (tortoisePace ?? 0) * 2,
+                       avgPace * 1.15, nowPace * 1.15, 10)
+        return (base / 5).rounded(.up) * 5
+    }
+
+    private func point(_ v: Double, _ r: CGFloat) -> CGPoint {
+        let f = min(max(v / scaleMax, 0), 1)
+        let theta = Double.pi * (1 - f)
+        return CGPoint(x: center.x + r * CGFloat(cos(theta)),
+                       y: center.y - r * CGFloat(sin(theta)))
+    }
+
+    private func arc(from v1: Double, to v2: Double) -> Path {
+        Path { p in
+            let steps = 40
+            for i in 0...steps {
+                let v = v1 + (v2 - v1) * Double(i) / Double(steps)
+                let pt = point(v, radius)
+                if i == 0 { p.move(to: pt) } else { p.addLine(to: pt) }
+            }
+        }
+    }
+
+    /// Colored bands: orange below the slower ghost, yellow between, green above the faster.
+    private var bands: [(Double, Double, Color)] {
+        let paces = [tortoisePace, harePace].compactMap { $0 }.sorted()
+        switch paces.count {
+        case 2:
+            return [(0, paces[0], orangeZone), (paces[0], paces[1], yellow), (paces[1], scaleMax, raceGreen)]
+        case 1:
+            let lowColor = harePace != nil ? yellow : orangeZone
+            return [(0, paces[0], lowColor), (paces[0], scaleMax, raceGreen)]
+        default:
+            return [(0, scaleMax, raceGreen)]
+        }
+    }
+
+    private func needle(_ v: Double, length: CGFloat) -> Path {
+        Path { p in
+            p.move(to: center)
+            p.addLine(to: point(v, length))
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 4) {
+            HStack {
+                Text("PACE GAUGE")
+                    .font(.footnote.bold())
+                    .foregroundStyle(yellow)
+                Spacer()
+                Text("ft/min")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.75))
+            }
+
+            ZStack {
+                ForEach(Array(bands.enumerated()), id: \.offset) { _, band in
+                    arc(from: band.0, to: band.1)
+                        .stroke(band.2, style: StrokeStyle(lineWidth: 18, lineCap: .butt))
+                }
+
+                ForEach(markers, id: \.label) { m in
+                    Path { p in
+                        p.move(to: point(m.pace, radius - 12))
+                        p.addLine(to: point(m.pace, radius + 12))
+                    }
+                    .stroke(Color.white, lineWidth: 3)
+                    Text(m.emoji)
+                        .font(.system(size: 24))
+                        .scaleEffect(x: -1, y: 1)
+                        .position(point(m.pace, radius + 30))
+                    Text(String(format: "%.0f", m.pace))
+                        .font(.system(size: 12, weight: .heavy))
+                        .foregroundStyle(.white)
+                        .position(point(m.pace, radius + 52))
+                }
+
+                needle(nowPace, length: radius - 16)
+                    .stroke(nowColor, style: StrokeStyle(lineWidth: 3, lineCap: .round, dash: [6, 4]))
+                needle(avgPace, length: radius - 22)
+                    .stroke(Color.white, style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 18, height: 18)
+                    .position(center)
+
+                Text("0")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.75))
+                    .position(x: center.x - radius, y: center.y + 18)
+                Text(String(format: "%.0f", scaleMax))
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.75))
+                    .position(x: center.x + radius, y: center.y + 18)
+            }
+            .frame(width: size.width, height: size.height)
+
+            HStack(spacing: 28) {
+                VStack(spacing: 0) {
+                    Text(String(format: "%.1f", avgPace))
+                        .font(.system(size: 28, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text("— average")
+                        .font(.caption.bold())
+                        .foregroundStyle(.white)
+                }
+                VStack(spacing: 0) {
+                    Text(String(format: "%.1f", nowPace))
+                        .font(.system(size: 28, weight: .heavy, design: .rounded))
+                        .foregroundStyle(nowColor)
+                    Text("- - right now")
+                        .font(.caption.bold())
+                        .foregroundStyle(nowColor)
+                }
+            }
+            Text(statusText)
+                .font(.caption.bold())
+                .foregroundStyle(.white)
+            if let hint {
+                Text(hint)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.75))
+            }
+        }
+        .padding(12)
+        .background(Color(red: 0.12, green: 0.15, blue: 0.2))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .accessibilityElement(children: .combine)
+    }
+
+    private struct Marker { let label: String; let emoji: String; let pace: Double }
+
+    private var markers: [Marker] {
+        var list: [Marker] = []
+        if let t = tortoisePace { list.append(Marker(label: "tortoise", emoji: GhostRole.hound.emoji, pace: t)) }
+        if let h = harePace { list.append(Marker(label: "hare", emoji: GhostRole.rabbit.emoji, pace: h)) }
+        return list
+    }
+}
+
+// MARK: - Sync Watch row (button under the HR tile)
+
+struct SyncWatchRow: View {
+    let lastSampleDate: Date?
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let age = lastSampleDate.map { max(0, context.date.timeIntervalSince($0)) }
+            GeometryReader { geo in
+                let col = (geo.size.width - 16) / 3
+                HStack(spacing: 8) {
+                    Button {
+                        HealthAppLauncher.open()
+                    } label: {
+                        Text("Sync Watch")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(navy)
+                            .frame(width: col, height: 40)
+                            .background(yellow)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(dotColor(age))
+                            .frame(width: 10, height: 10)
+                        Text(label(age))
+                            .font(.caption.bold())
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                    .frame(width: col * 2 + 8, alignment: .leading)
+                }
+            }
+            .frame(height: 40)
+        }
+    }
+
+    private func label(_ age: TimeInterval?) -> String {
+        guard let age else { return "No heart rate yet" }
+        let secs = Int(age)
+        return secs < 60 ? "Last reading: \(secs) sec ago" : "Last reading: \(secs / 60) min \(secs % 60) sec ago"
+    }
+
+    private func dotColor(_ age: TimeInterval?) -> Color {
+        guard let age else { return .orange }
+        if age < 30 { return raceGreen }
+        if age < 120 { return yellow }
+        return .orange
     }
 }
 

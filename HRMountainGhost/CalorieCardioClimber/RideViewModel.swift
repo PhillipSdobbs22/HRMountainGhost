@@ -70,6 +70,28 @@ enum HRZone: Int, CaseIterable {
         }
     }
 
+    /// Heart-rate range in bpm for this zone, matching how zone(hr:maxHR:)
+    /// assigns zones (e.g. max 173 → Z2 "104–121 bpm").
+    func bpmRangeLabel(maxHR: Int) -> String {
+        let m = Double(maxHR)
+        func floorBpm(_ pct: Double) -> Int { Int((pct * m).rounded(.up)) }
+        switch self {
+        case .zone1: return "under \(floorBpm(0.6)) bpm"
+        case .zone2: return "\(floorBpm(0.6))\u{2013}\(floorBpm(0.7) - 1) bpm"
+        case .zone3: return "\(floorBpm(0.7))\u{2013}\(floorBpm(0.8) - 1) bpm"
+        case .zone4: return "\(floorBpm(0.8))\u{2013}\(floorBpm(0.9) - 1) bpm"
+        case .zone5: return "\(floorBpm(0.9))+ bpm"
+        }
+    }
+
+    /// Compact version for the Climb tab zone strip (Z1 shows "<104 bpm").
+    func bpmRangeShort(maxHR: Int) -> String {
+        if self == .zone1 {
+            return "<\(Int((0.6 * Double(maxHR)).rounded(.up))) bpm"
+        }
+        return bpmRangeLabel(maxHR: maxHR)
+    }
+
     /// Determine the zone for a given HR and max HR.
     static func zone(hr: Double, maxHR: Double) -> HRZone {
         guard maxHR > 0 else { return .zone1 }
@@ -130,6 +152,11 @@ final class RideViewModel: ObservableObject {
     private var pausedAt: Date?
     private var totalPausedTime: TimeInterval = 0
     private var pauseIntervals: [(start: Date, end: Date)] = []
+
+    /// Climbing pace over the last 60 seconds (ft/min) — the "right now" needle.
+    @Published private(set) var currentPace: Double = 0
+    private var paceHistory: [(elapsed: TimeInterval, feet: Double)] = []
+    private static let paceWindow: TimeInterval = 60
 
     /// End date of the newest heart-rate sample received (for the freshness indicator).
     @Published private(set) var lastHRSampleDate: Date? = nil
@@ -255,6 +282,8 @@ final class RideViewModel: ObservableObject {
         totalPausedTime = 0
         pauseIntervals = []
         lastHRSampleDate = nil
+        currentPace = 0
+        paceHistory = []
         for g in ghosts { g.reset() }
         isRunning = true
 
@@ -369,6 +398,16 @@ final class RideViewModel: ObservableObject {
                     ElevationSample(elapsed: elapsed, feet: targetFt)
                 )
                 lastSampleTime = elapsed
+            }
+
+            // "Right now" pace: feet gained over the last 60 seconds.
+            paceHistory.append((elapsed: elapsed, feet: targetFt))
+            while paceHistory.count > 2,
+                  paceHistory[1].elapsed <= elapsed - Self.paceWindow {
+                paceHistory.removeFirst()
+            }
+            if let first = paceHistory.first, elapsed - first.elapsed >= 5 {
+                currentPace = max(0, (targetFt - first.feet) / ((elapsed - first.elapsed) / 60.0))
             }
 
             // Update ghost positions.
