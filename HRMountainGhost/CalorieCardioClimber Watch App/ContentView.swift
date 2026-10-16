@@ -3,8 +3,8 @@
 //  CalorieCardioClimber Watch App
 //
 //  Standalone PaceGauge UI for Apple Watch.
-//  Three screens: settings → gauge → summary.
-//  Display auto-blanks after 3 seconds to save battery;
+//  Four screens: settings → gauge → stopped → summary.
+//  Display auto-blanks after 5 seconds to save battery;
 //  wrist raise wakes it.
 //
 
@@ -13,7 +13,6 @@ import SwiftUI
 struct ContentView: View {
 
     @StateObject private var vm = WatchPaceViewModel()
-    @State private var authorized = false
     @State private var displayOn = true
     @State private var displayTimer: Timer?
     @Environment(\.scenePhase) private var scenePhase
@@ -22,6 +21,8 @@ struct ContentView: View {
         Group {
             if vm.showSummary {
                 summaryView
+            } else if vm.isPaused {
+                stoppedView
             } else if vm.isActive {
                 activeView
             } else {
@@ -29,7 +30,7 @@ struct ContentView: View {
             }
         }
         .onChange(of: scenePhase) { newPhase in
-            if newPhase == .active && vm.isActive {
+            if newPhase == .active && vm.isActive && !vm.isPaused {
                 wakeDisplay()
             }
         }
@@ -60,7 +61,7 @@ struct ContentView: View {
                 // Tortoise pace setter
                 HStack {
                     Text("🐢")
-                        .font(.system(size: 16))
+                        .font(.system(size: 32))
                     Stepper(
                         value: $vm.tortoisePace,
                         in: 0.5...vm.harePace - 0.5,
@@ -74,10 +75,27 @@ struct ContentView: View {
                     }
                 }
 
+                // Goal pace setter
+                HStack {
+                    Text("🎯")
+                        .font(.system(size: 32))
+                    Stepper(
+                        value: $vm.goalPace,
+                        in: vm.tortoisePace...vm.harePace,
+                        step: 0.5
+                    ) {
+                        Text(String(format: "%.1f mph",
+                                    vm.goalPace))
+                            .font(.system(size: 14, weight: .semibold,
+                                          design: .rounded))
+                            .foregroundColor(.yellow)
+                    }
+                }
+
                 // Hare pace setter
                 HStack {
                     Text("🐇")
-                        .font(.system(size: 16))
+                        .font(.system(size: 32))
                     Stepper(
                         value: $vm.harePace,
                         in: vm.tortoisePace + 0.5...vm.gaugeMax - 0.5,
@@ -100,13 +118,11 @@ struct ContentView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.green)
-                .disabled(!authorized)
             }
             .padding(.horizontal, 4)
         }
         .task {
             await vm.requestAuthorization()
-            authorized = true
         }
     }
 
@@ -127,7 +143,7 @@ struct ContentView: View {
 
     private var gaugeScreen: some View {
         ZStack {
-            // Gauge — fills entire screen
+            // Gauge — fills screen but respects safe area
             PaceGaugeView(
                 currentSpeed: vm.currentSpeedMPH,
                 avgSpeed: vm.avgSpeedMPH,
@@ -136,47 +152,90 @@ struct ContentView: View {
                 gaugeMax: vm.gaugeMax
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .ignoresSafeArea()
 
-            // HR overlay top-left
+            // Elapsed time — centered inside arc, semi-transparent, stretched wide
+            Text(vm.elapsedFormatted)
+                .font(.system(size: 54, weight: .bold,
+                              design: .rounded))
+                .foregroundColor(.white)
+                .opacity(0.30)
+                .minimumScaleFactor(0.5)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .offset(y: 24)   // lower into the arc belly
+
+            // HR overlay top-left — 50pt bold
             VStack {
-                HStack {
+                HStack(alignment: .firstTextBaseline, spacing: 2) {
                     if vm.heartRate > 0 {
-                        HStack(spacing: 1) {
-                            Text("\(Int(vm.heartRate))")
-                                .font(.system(size: 16, weight: .bold,
-                                              design: .rounded))
-                                .foregroundColor(.white)
-                            Text("♥")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(.red)
-                        }
+                        Text("\(Int(vm.heartRate))")
+                            .font(.system(size: 50, weight: .bold,
+                                          design: .rounded))
+                            .foregroundColor(.white)
+                        Text("♥")
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundColor(.red)
                     }
                     Spacer()
                 }
                 .padding(.leading, 4)
-                .padding(.top, 2)
 
                 Spacer()
             }
+            .offset(y: -10)
 
-            // Tiny stop button bottom-right
+            // END button bottom-center — red filled capsule
             VStack {
                 Spacer()
-                HStack {
-                    Spacer()
-                    Button {
-                        displayTimer?.invalidate()
-                        vm.stop()
-                    } label: {
-                        Image(systemName: "stop.fill")
-                            .font(.system(size: 10))
-                            .foregroundColor(.red)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.trailing, 6)
-                    .padding(.bottom, 4)
+                Button {
+                    displayTimer?.invalidate()
+                    vm.pause()
+                } label: {
+                    Text("END")
+                        .font(.system(size: 13, weight: .bold,
+                                      design: .rounded))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                        .background(
+                            Capsule()
+                                .fill(Color.red)
+                        )
                 }
+                .buttonStyle(.plain)
+                .padding(.bottom, 2)
+            }
+        }
+    }
+
+    // MARK: - Stopped Screen (Resume / Save)
+
+    private var stoppedView: some View {
+        VStack(spacing: 16) {
+            Text("Paused")
+                .font(.system(size: 18, weight: .bold,
+                              design: .rounded))
+                .foregroundColor(.yellow)
+
+            HStack(spacing: 12) {
+                Button {
+                    vm.resume()
+                    wakeDisplay()
+                } label: {
+                    Text("Resume")
+                        .font(.system(size: 15, weight: .semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+
+                Button {
+                    vm.save()
+                } label: {
+                    Text("END")
+                        .font(.system(size: 15, weight: .semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
             }
         }
     }
@@ -184,26 +243,44 @@ struct ContentView: View {
     // MARK: - Summary Screen
 
     private var summaryView: some View {
-        VStack(spacing: 12) {
-            Text("Run Complete")
-                .font(.system(size: 16, weight: .bold,
-                              design: .rounded))
-                .foregroundColor(.white)
+        ScrollView {
+            VStack(spacing: 8) {
+                Text("Pacer Complete")
+                    .font(.system(size: 16, weight: .bold,
+                                  design: .rounded))
+                    .foregroundColor(.white)
 
-            Text(String(format: "%.1f", vm.avgSpeedMPH))
-                .font(.system(size: 48, weight: .heavy,
-                              design: .rounded))
-                .foregroundColor(.green)
+                Text(String(format: "%.1f", vm.avgSpeedMPH))
+                    .font(.system(size: 48, weight: .heavy,
+                                  design: .rounded))
+                    .foregroundColor(.green)
 
-            Text("avg mph")
-                .font(.system(size: 14))
-                .foregroundColor(.white.opacity(0.7))
+                Text("avg mph")
+                    .font(.system(size: 14))
+                    .foregroundColor(.white.opacity(0.7))
 
-            Button("Done") {
-                vm.dismissSummary()
+                // Goal pace comparison
+                let diff = vm.avgSpeedMPH - vm.goalPace
+                let sign = diff >= 0 ? "+" : ""
+                Text("Keep it up!")
+                    .font(.system(size: 16, weight: .bold,
+                                  design: .rounded))
+                    .foregroundColor(.yellow)
+                    .padding(.top, 4)
+                Text(String(format: "%@%.2f mph of goal pace",
+                            sign, diff))
+                    .font(.system(size: 14, weight: .semibold,
+                                  design: .rounded))
+                    .foregroundColor(diff >= 0 ? .green : .orange)
+
+                Button("Done") {
+                    vm.dismissSummary()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.blue)
+                .padding(.top, 8)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.blue)
+            .padding(.horizontal, 4)
         }
     }
 }

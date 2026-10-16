@@ -21,12 +21,15 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
     @Published var currentSpeedMPH: Double = 0
     @Published var avgSpeedMPH: Double = 0
     @Published var isActive = false
+    @Published var isPaused = false
     @Published var showSummary = false
+    @Published var elapsedSeconds: TimeInterval = 0
 
     // MARK: - Gauge Settings (user-adjustable before start)
 
     @Published var tortoisePace: Double = 2.5   // mph
     @Published var harePace: Double = 5.0       // mph
+    @Published var goalPace: Double = 3.5       // mph
     let gaugeMax: Double = 8.0                  // mph
 
     // MARK: - Private
@@ -41,6 +44,9 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
     private var lastLocation: CLLocation?
     private var lastGPSUpdate: Date?
     private var staleTimer: Timer?
+    private var clockTimer: Timer?
+    private var pausedElapsed: TimeInterval = 0
+    private var pauseDate: Date?
 
     // MARK: - Init
 
@@ -97,12 +103,16 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
         totalDistanceMeters = 0
         lastLocation = nil
         lastGPSUpdate = nil
+        pausedElapsed = 0
+        pauseDate = nil
         heartRate = 0
         currentSpeedMPH = 0
         avgSpeedMPH = 0
+        elapsedSeconds = 0
 
         startHeartRateQuery()
         locationManager.startUpdatingLocation()
+        startClockTimer()
 
         // 3-second watchdog: zero out speed if GPS goes stale
         staleTimer = Timer.scheduledTimer(
@@ -112,11 +122,56 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - Stop
+    // MARK: - Pause (STOP button pressed)
 
-    func stop() {
+    func pause() {
         staleTimer?.invalidate()
         staleTimer = nil
+        clockTimer?.invalidate()
+        clockTimer = nil
+        locationManager.stopUpdatingLocation()
+        workoutSession?.pause()
+        pauseDate = Date()
+        currentSpeedMPH = 0
+        isPaused = true
+    }
+
+    // MARK: - Resume
+
+    func resume() {
+        // Accumulate paused time so avg speed stays accurate
+        if let pd = pauseDate {
+            pausedElapsed += Date().timeIntervalSince(pd)
+            pauseDate = nil
+        }
+        lastLocation = nil   // discard stale location
+        lastGPSUpdate = nil
+        workoutSession?.resume()
+        locationManager.startUpdatingLocation()
+
+        staleTimer = Timer.scheduledTimer(
+            withTimeInterval: 3.0, repeats: true
+        ) { [weak self] _ in
+            Task { @MainActor in self?.checkStaleGPS() }
+        }
+
+        startClockTimer()
+        isPaused = false
+    }
+
+    // MARK: - Save (end workout, show summary)
+
+    func save() {
+        // Accumulate any remaining paused time
+        if let pd = pauseDate {
+            pausedElapsed += Date().timeIntervalSince(pd)
+            pauseDate = nil
+        }
+
+        staleTimer?.invalidate()
+        staleTimer = nil
+        clockTimer?.invalidate()
+        clockTimer = nil
 
         if let q = hrQuery {
             healthStore.stop(q)
@@ -129,11 +184,36 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
         workoutSession = nil
 
         isActive = false
+        isPaused = false
         showSummary = true
     }
 
     func dismissSummary() {
         showSummary = false
+    }
+
+    // MARK: - Formatted Elapsed Time
+
+    var elapsedFormatted: String {
+        let total = Int(elapsedSeconds)
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        return String(format: "%d:%02d:%02d", h, m, s)
+    }
+
+    private func startClockTimer() {
+        clockTimer?.invalidate()
+        clockTimer = Timer.scheduledTimer(
+            withTimeInterval: 1.0, repeats: true
+        ) { [weak self] _ in
+            Task { @MainActor in self?.tickClock() }
+        }
+    }
+
+    private func tickClock() {
+        guard let start = startDate else { return }
+        elapsedSeconds = Date().timeIntervalSince(start) - pausedElapsed
     }
 
     // MARK: - Stale GPS Check
@@ -208,6 +288,7 @@ extension WatchPaceViewModel: CLLocationManagerDelegate {
 
             if let start = self.startDate {
                 let elapsed = Date().timeIntervalSince(start)
+                                     - self.pausedElapsed
                 if elapsed > 0 {
                     self.avgSpeedMPH =
                         (self.totalDistanceMeters / elapsed) * 2.23694
@@ -240,6 +321,6 @@ extension WatchPaceViewModel: HKWorkoutSessionDelegate {
         didFailWithError error: Error
     ) {
         print("[WatchPace] Workout error: \(error)")
-        Task { @MainActor in self.stop() }
+        Task { @MainActor in self.save() }
     }
 }

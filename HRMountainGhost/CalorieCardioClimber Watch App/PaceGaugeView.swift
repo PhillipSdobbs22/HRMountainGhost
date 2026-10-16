@@ -31,9 +31,9 @@ struct PaceGaugeView: View {
             let w = size.width
             let h = size.height
             let cx = w / 2
-            let cy = h            // center at bottom edge
+            let cy = h * 0.85       // center above bottom edge so arc stays visible
 
-            let r  = (w / 2) * 0.92   // maximize radius
+            let r  = min(w / 2, cy) * 0.88   // fit within view
             let bandWidth: CGFloat = 16
             let tickLen: CGFloat = 10
 
@@ -102,6 +102,36 @@ struct PaceGaugeView: View {
                            lineWidth: 1.5)
             }
 
+            // ── 3b. Prominent tortoise & hare tick marks ──
+            let markerTickLen: CGFloat = tickLen * 2.2
+            let markerWidth: CGFloat = 3.0
+
+            // Tortoise marker — orange
+            let tortAngle = angle(for: tortoise)
+            let tortOuter = point(at: tortAngle,
+                                  radius: r + bandWidth / 2 + 1)
+            let tortInner = point(at: tortAngle,
+                                  radius: r + bandWidth / 2 + 1 - markerTickLen)
+            var tortTickPath = Path()
+            tortTickPath.move(to: tortOuter)
+            tortTickPath.addLine(to: tortInner)
+            ctx.stroke(tortTickPath,
+                       with: .color(orangeZone),
+                       lineWidth: markerWidth)
+
+            // Hare marker — green
+            let hareAngle = angle(for: hare)
+            let hareOuter = point(at: hareAngle,
+                                  radius: r + bandWidth / 2 + 1)
+            let hareInner = point(at: hareAngle,
+                                  radius: r + bandWidth / 2 + 1 - markerTickLen)
+            var hareTickPath = Path()
+            hareTickPath.move(to: hareOuter)
+            hareTickPath.addLine(to: hareInner)
+            ctx.stroke(hareTickPath,
+                       with: .color(greenZone),
+                       lineWidth: markerWidth)
+
             // ── 4. Tortoise / Hare emoji markers ──
             let emojiRadius = r + bandWidth / 2 + 16
 
@@ -117,7 +147,8 @@ struct PaceGaugeView: View {
             ctx.draw(ctx.resolve(hareText),
                      at: harePos, anchor: .center)
 
-            // ── 5. Average pace needle (solid white) ──
+            // ── 5. Average pace needle (light gray) with "Avg" label ──
+            let needleColor = Color(white: 0.75)   // light gray
             let avgAngle = angle(for: avgSpeed)
             let needleR = r - bandWidth / 2 - 2
             let avgTip = point(at: avgAngle, radius: needleR)
@@ -126,7 +157,7 @@ struct PaceGaugeView: View {
             avgPath.move(to: CGPoint(x: cx, y: cy))
             avgPath.addLine(to: avgTip)
             ctx.stroke(avgPath,
-                       with: .color(.white),
+                       with: .color(needleColor),
                        style: StrokeStyle(lineWidth: 3,
                                           lineCap: .round))
 
@@ -134,7 +165,16 @@ struct PaceGaugeView: View {
             let hubRect = CGRect(x: cx - 5, y: cy - 5,
                                  width: 10, height: 10)
             ctx.fill(Path(ellipseIn: hubRect),
-                     with: .color(.white))
+                     with: .color(needleColor))
+
+            // ── 7. "Avg" label — drawn LAST so it's on top of needle ──
+            let labelR = needleR * 0.55
+            let labelPos = point(at: avgAngle, radius: labelR)
+            let avgLabel = Text("Avg")
+                .font(.system(size: 24, weight: .bold, design: .rounded))
+                .foregroundColor(needleColor)
+            ctx.draw(ctx.resolve(avgLabel),
+                     at: labelPos, anchor: .center)
         }
     }
 
