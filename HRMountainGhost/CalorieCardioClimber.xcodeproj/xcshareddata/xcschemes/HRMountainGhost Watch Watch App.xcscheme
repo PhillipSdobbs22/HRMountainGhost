@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "1612C069307C5A36004D85FF"
-               BuildableName = "CalorieCardioClimber Watch Watch App.app"
+               BuildableName = "Pacer.app"
                BlueprintName = "CalorieCardioClimber Watch Watch App"
                ReferencedContainer = "container:CalorieCardioClimber.xcodeproj">
             </BuildableReference>
@@ -60,7 +60,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "1612C069307C5A36004D85FF"
-            BuildableName = "CalorieCardioClimber Watch Watch App.app"
+            BuildableName = "Pacer.app"
             BlueprintName = "CalorieCardioClimber Watch Watch App"
             ReferencedContainer = "container:CalorieCardioClimber.xcodeproj">
          </BuildableReference>
@@ -77,7 +77,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "1612C069307C5A36004D85FF"
-            BuildableName = "CalorieCardioClimber Watch Watch App.app"
+            BuildableName = "Pacer.app"
             BlueprintName = "CalorieCardioClimber Watch Watch App"
             ReferencedContainer = "container:CalorieCardioClimber.xcodeproj">
          </BuildableReference>

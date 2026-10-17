@@ -2,9 +2,11 @@
 //  WatchPaceViewModel.swift
 //  CalorieCardioClimber Watch App
 //
-//  Standalone ViewModel for PaceGauge on Apple Watch.
-//  Manages HKWorkoutSession (HR), CoreLocation (speed),
-//  and avg speed — no iPhone required. Battery-optimized.
+//  ViewModel for PaceGauge on Apple Watch.
+//  Owns its own HKWorkoutSession so this app gets wrist-raise
+//  priority — no need to run Apple's Workout app alongside it.
+//  Records HR, GPS route, distance, speed, and calories;
+//  saves the completed workout to Apple Health.
 //
 
 import Foundation
@@ -24,21 +26,35 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
     @Published var isPaused = false
     @Published var showSummary = false
     @Published var elapsedSeconds: TimeInterval = 0
+    @Published var activeCalories: Double = 0
+    @Published var totalDistanceMiles: Double = 0
 
     // MARK: - Gauge Settings (user-adjustable before start)
 
-    @Published var tortoisePace: Double = 2.5   // mph
-    @Published var harePace: Double = 5.0       // mph
-    @Published var goalPace: Double = 3.5       // mph
+    @Published var tortoisePace: Double = 3.0   // mph
+    @Published var harePace: Double = 6.0       // mph
+    @Published var goalPace: Double = 5.0       // mph
     let gaugeMax: Double = 8.0                  // mph
 
-    // MARK: - Private
+    // MARK: - HR Zone Settings
+
+    @Published var maxHR: Double = 173          // user-adjustable max heart rate
+
+    // MARK: - Workout Config
+
+    /// Set to false for indoor (no GPS). Default true for outdoor GPS speed.
+    @Published var isOutdoor: Bool = true
+
+    // MARK: - Private — Workout
 
     private let healthStore = HKHealthStore()
-    private var workoutSession: HKWorkoutSession?
-    private var hrQuery: HKAnchoredObjectQuery?
-    private let locationManager = CLLocationManager()
+    private var session: HKWorkoutSession?
+    private var builder: HKLiveWorkoutBuilder?
+    private var routeBuilder: HKWorkoutRouteBuilder?
 
+    // MARK: - Private — Location
+
+    private let locationManager = CLLocationManager()
     private var startDate: Date?
     private var totalDistanceMeters: Double = 0
     private var lastLocation: CLLocation?
@@ -47,6 +63,7 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
     private var clockTimer: Timer?
     private var pausedElapsed: TimeInterval = 0
     private var pauseDate: Date?
+    private var routeLocations: [CLLocation] = []
 
     // MARK: - Init
 
@@ -63,8 +80,17 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
     func requestAuthorization() async {
         guard HKHealthStore.isHealthDataAvailable() else { return }
 
-        let read: Set<HKObjectType> = [HKQuantityType(.heartRate)]
-        let share: Set<HKSampleType> = [HKWorkoutType.workoutType()]
+        let read: Set<HKObjectType> = [
+            HKQuantityType(.heartRate),
+            HKQuantityType(.activeEnergyBurned),
+            HKQuantityType(.distanceWalkingRunning),
+            HKQuantityType(.distanceCycling)
+        ]
+
+        let share: Set<HKSampleType> = [
+            HKWorkoutType.workoutType(),
+            HKSeriesType.workoutRoute()
+        ]
 
         do {
             try await healthStore.requestAuthorization(
@@ -79,22 +105,7 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
     // MARK: - Start
 
     func start() {
-        guard workoutSession == nil else { return }
-
-        let config = HKWorkoutConfiguration()
-        config.activityType = .running
-        config.locationType = .outdoor
-
-        do {
-            let session = try HKWorkoutSession(
-                healthStore: healthStore, configuration: config)
-            session.delegate = self
-            session.startActivity(with: Date())
-            workoutSession = session
-        } catch {
-            print("[WatchPace] Workout start error: \(error)")
-            return
-        }
+        guard !isActive else { return }
 
         startDate = Date()
         isActive = true
@@ -109,28 +120,77 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
         currentSpeedMPH = 0
         avgSpeedMPH = 0
         elapsedSeconds = 0
+        activeCalories = 0
+        totalDistanceMiles = 0
+        routeLocations = []
 
-        startHeartRateQuery()
-        locationManager.startUpdatingLocation()
+        startWorkoutSession()
+
+        if isOutdoor {
+            locationManager.startUpdatingLocation()
+            staleTimer = Timer.scheduledTimer(
+                withTimeInterval: 6.0, repeats: true
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.checkStaleGPS() }
+            }
+        }
+
         startClockTimer()
+    }
 
-        // 3-second watchdog: zero out speed if GPS goes stale
-        staleTimer = Timer.scheduledTimer(
-            withTimeInterval: 3.0, repeats: true
-        ) { [weak self] _ in
-            Task { @MainActor in self?.checkStaleGPS() }
+    // MARK: - Workout Session (owns the session → wrist-raise priority)
+
+    private func startWorkoutSession() {
+        let config = HKWorkoutConfiguration()
+        config.activityType = .cycling
+        config.locationType = isOutdoor ? .outdoor : .indoor
+
+        do {
+            let ws = try HKWorkoutSession(
+                healthStore: healthStore, configuration: config)
+            ws.delegate = self
+
+            let wb = ws.associatedWorkoutBuilder()
+            wb.delegate = self
+            wb.dataSource = HKLiveWorkoutDataSource(
+                healthStore: healthStore,
+                workoutConfiguration: config)
+
+            session = ws
+            builder = wb
+
+            // Start the session — this makes us the frontmost workout app
+            ws.startActivity(with: Date())
+
+            Task {
+                do {
+                    try await wb.beginCollection(at: Date())
+                } catch {
+                    print("[WatchPace] Builder begin error: \(error)")
+                }
+            }
+
+            // Route builder for GPS track (outdoor only)
+            if isOutdoor {
+                routeBuilder = HKWorkoutRouteBuilder(
+                    healthStore: healthStore, device: nil)
+            }
+
+        } catch {
+            print("[WatchPace] Session start error: \(error)")
         }
     }
 
     // MARK: - Pause (STOP button pressed)
 
     func pause() {
+        session?.pause()
+
         staleTimer?.invalidate()
         staleTimer = nil
         clockTimer?.invalidate()
         clockTimer = nil
         locationManager.stopUpdatingLocation()
-        workoutSession?.pause()
         pauseDate = Date()
         currentSpeedMPH = 0
         isPaused = true
@@ -139,6 +199,8 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
     // MARK: - Resume
 
     func resume() {
+        session?.resume()
+
         // Accumulate paused time so avg speed stays accurate
         if let pd = pauseDate {
             pausedElapsed += Date().timeIntervalSince(pd)
@@ -146,20 +208,21 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
         }
         lastLocation = nil   // discard stale location
         lastGPSUpdate = nil
-        workoutSession?.resume()
-        locationManager.startUpdatingLocation()
 
-        staleTimer = Timer.scheduledTimer(
-            withTimeInterval: 3.0, repeats: true
-        ) { [weak self] _ in
-            Task { @MainActor in self?.checkStaleGPS() }
+        if isOutdoor {
+            locationManager.startUpdatingLocation()
+            staleTimer = Timer.scheduledTimer(
+                withTimeInterval: 6.0, repeats: true
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.checkStaleGPS() }
+            }
         }
 
         startClockTimer()
         isPaused = false
     }
 
-    // MARK: - Save (end workout, show summary)
+    // MARK: - Save (end workout, write to Apple Health, show summary)
 
     func save() {
         // Accumulate any remaining paused time
@@ -172,16 +235,45 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
         staleTimer = nil
         clockTimer?.invalidate()
         clockTimer = nil
-
-        if let q = hrQuery {
-            healthStore.stop(q)
-            hrQuery = nil
-        }
-
         locationManager.stopUpdatingLocation()
 
-        workoutSession?.end()
-        workoutSession = nil
+        // End the workout session
+        session?.end()
+
+        Task {
+            await finishAndSaveWorkout()
+        }
+    }
+
+    private func finishAndSaveWorkout() async {
+        guard let builder = builder else {
+            isActive = false
+            isPaused = false
+            showSummary = true
+            return
+        }
+
+        do {
+            try await builder.endCollection(at: Date())
+            let workout = try await builder.finishWorkout()
+
+            // Attach the GPS route to the saved workout
+            if let routeBuilder = routeBuilder,
+               !routeLocations.isEmpty,
+               let workout = workout {
+                try await routeBuilder.finishRoute(
+                    with: workout, metadata: nil)
+            }
+
+            print("[WatchPace] Workout saved to Apple Health")
+        } catch {
+            print("[WatchPace] Save error: \(error)")
+        }
+
+        // Clean up
+        session = nil
+        self.builder = nil
+        routeBuilder = nil
 
         isActive = false
         isPaused = false
@@ -207,7 +299,7 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
         clockTimer = Timer.scheduledTimer(
             withTimeInterval: 1.0, repeats: true
         ) { [weak self] _ in
-            Task { @MainActor in self?.tickClock() }
+            Task { @MainActor [weak self] in self?.tickClock() }
         }
     }
 
@@ -224,38 +316,66 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
             currentSpeedMPH = 0
         }
     }
+}
 
-    // MARK: - Heart Rate Query
+// MARK: - HKWorkoutSessionDelegate
 
-    private func startHeartRateQuery() {
-        let hrType = HKQuantityType(.heartRate)
-        let pred = HKQuery.predicateForSamples(
-            withStart: Date(), end: nil, options: .strictStartDate)
+extension WatchPaceViewModel: HKWorkoutSessionDelegate {
 
-        let query = HKAnchoredObjectQuery(
-            type: hrType, predicate: pred,
-            anchor: nil, limit: HKObjectQueryNoLimit
-        ) { [weak self] _, samples, _, _, _ in
-            self?.processHR(samples)
-        }
-
-        query.updateHandler = { [weak self] _, samples, _, _, _ in
-            self?.processHR(samples)
-        }
-
-        hrQuery = query
-        healthStore.execute(query)
+    func workoutSession(
+        _ workoutSession: HKWorkoutSession,
+        didChangeTo toState: HKWorkoutSessionState,
+        from fromState: HKWorkoutSessionState,
+        date: Date
+    ) {
+        // State changes handled by pause()/resume()/save()
     }
 
-    nonisolated private func processHR(_ samples: [HKSample]?) {
-        guard let qs = samples as? [HKQuantitySample],
-              let latest = qs.last else { return }
+    func workoutSession(
+        _ workoutSession: HKWorkoutSession,
+        didFailWithError error: Error
+    ) {
+        print("[WatchPace] Session error: \(error)")
+        self.save()
+    }
+}
 
-        let bpm = latest.quantity.doubleValue(
-            for: HKUnit.count().unitDivided(by: .minute()))
+// MARK: - HKLiveWorkoutBuilderDelegate
 
-        Task { @MainActor in
-            self.heartRate = bpm
+extension WatchPaceViewModel: HKLiveWorkoutBuilderDelegate {
+
+    func workoutBuilderDidCollectEvent(
+        _ workoutBuilder: HKLiveWorkoutBuilder
+    ) {
+        // Pause/resume markers collected automatically
+    }
+
+    func workoutBuilder(
+        _ workoutBuilder: HKLiveWorkoutBuilder,
+        didCollectDataOf collectedTypes: Set<HKSampleType>
+    ) {
+        for type in collectedTypes {
+            guard let qType = type as? HKQuantityType else { continue }
+
+            // Heart rate — from the workout builder (no separate query needed)
+            if qType == HKQuantityType(.heartRate) {
+                let stats = workoutBuilder.statistics(for: qType)
+                let unit = HKUnit.count().unitDivided(by: .minute())
+                if let bpm = stats?.mostRecentQuantity()?
+                    .doubleValue(for: unit) {
+                    self.heartRate = bpm
+                }
+            }
+
+            // Active calories
+            if qType == HKQuantityType(.activeEnergyBurned) {
+                let stats = workoutBuilder.statistics(for: qType)
+                let unit = HKUnit.kilocalorie()
+                if let kcal = stats?.sumQuantity()?
+                    .doubleValue(for: unit) {
+                    self.activeCalories = kcal
+                }
+            }
         }
     }
 }
@@ -264,7 +384,7 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
 
 extension WatchPaceViewModel: CLLocationManagerDelegate {
 
-    nonisolated func locationManager(
+    func locationManager(
         _ manager: CLLocationManager,
         didUpdateLocations locations: [CLLocation]
     ) {
@@ -272,55 +392,44 @@ extension WatchPaceViewModel: CLLocationManagerDelegate {
               loc.horizontalAccuracy >= 0,
               loc.horizontalAccuracy < 30 else { return }
 
-        Task { @MainActor in
-            self.lastGPSUpdate = Date()
+        lastGPSUpdate = Date()
 
-            let speedMS = max(0, loc.speed)
-            self.currentSpeedMPH = speedMS * 2.23694
+        let speedMS = max(0, loc.speed)
+        currentSpeedMPH = speedMS * 2.23694
 
-            if let last = self.lastLocation {
-                let delta = loc.distance(from: last)
-                if delta < 100 {
-                    self.totalDistanceMeters += delta
-                }
+        if let last = lastLocation {
+            let delta = loc.distance(from: last)
+            if delta < 100 {
+                totalDistanceMeters += delta
             }
-            self.lastLocation = loc
+        }
+        lastLocation = loc
 
-            if let start = self.startDate {
-                let elapsed = Date().timeIntervalSince(start)
-                                     - self.pausedElapsed
-                if elapsed > 0 {
-                    self.avgSpeedMPH =
-                        (self.totalDistanceMeters / elapsed) * 2.23694
-                }
+        // Update published distance in miles
+        totalDistanceMiles = totalDistanceMeters / 1609.344
+
+        if let start = startDate {
+            let elapsed = Date().timeIntervalSince(start)
+                - pausedElapsed
+            if elapsed > 0 {
+                avgSpeedMPH =
+                    (totalDistanceMeters / elapsed) * 2.23694
+            }
+        }
+
+        // Feed location to route builder for Apple Health
+        routeLocations.append(loc)
+        routeBuilder?.insertRouteData([loc]) { _, error in
+            if let error {
+                print("[WatchPace] Route insert error: \(error)")
             }
         }
     }
 
-    nonisolated func locationManager(
+    func locationManager(
         _ manager: CLLocationManager,
         didFailWithError error: Error
     ) {
         print("[WatchPace] Location error: \(error)")
-    }
-}
-
-// MARK: - HKWorkoutSessionDelegate
-
-extension WatchPaceViewModel: HKWorkoutSessionDelegate {
-
-    nonisolated func workoutSession(
-        _ session: HKWorkoutSession,
-        didChangeTo toState: HKWorkoutSessionState,
-        from fromState: HKWorkoutSessionState,
-        date: Date
-    ) {}
-
-    nonisolated func workoutSession(
-        _ session: HKWorkoutSession,
-        didFailWithError error: Error
-    ) {
-        print("[WatchPace] Workout error: \(error)")
-        Task { @MainActor in self.save() }
     }
 }

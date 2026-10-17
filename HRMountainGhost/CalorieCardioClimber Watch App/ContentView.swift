@@ -109,6 +109,23 @@ struct ContentView: View {
                     }
                 }
 
+                // Max HR setter for zone bar
+                HStack {
+                    Text("♥")
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundColor(.red)
+                    Stepper(
+                        value: $vm.maxHR,
+                        in: 140...220,
+                        step: 1
+                    ) {
+                        Text("Max HR \(Int(vm.maxHR))")
+                            .font(.system(size: 14, weight: .semibold,
+                                          design: .rounded))
+                            .foregroundColor(.red)
+                    }
+                }
+
                 Button {
                     vm.start()
                     wakeDisplay()
@@ -164,22 +181,11 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity)
                 .offset(y: 24)   // lower into the arc belly
 
-            // HR overlay top-left — 50pt bold
+            // HR zone bar — top of screen
             VStack {
-                HStack(alignment: .firstTextBaseline, spacing: 2) {
-                    if vm.heartRate > 0 {
-                        Text("\(Int(vm.heartRate))")
-                            .font(.system(size: 50, weight: .bold,
-                                          design: .rounded))
-                            .foregroundColor(.white)
-                        Text("♥")
-                            .font(.system(size: 28, weight: .bold))
-                            .foregroundColor(.red)
-                    }
-                    Spacer()
-                }
-                .padding(.leading, 4)
-
+                HRZoneBarView(heartRate: vm.heartRate,
+                              maxHR: vm.maxHR)
+                    .padding(.horizontal, 4)
                 Spacer()
             }
             .offset(y: -10)

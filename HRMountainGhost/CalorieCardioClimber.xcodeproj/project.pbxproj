@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		1612C074307C5A37004D85FF /* CalorieCardioClimber Watch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 1612C06A307C5A36004D85FF /* CalorieCardioClimber Watch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		1612C074307C5A37004D85FF /* Pacer.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 1612C06A307C5A36004D85FF /* Pacer.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -27,7 +27,7 @@
 			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
 			dstSubfolderSpec = 16;
 			files = (
-				1612C074307C5A37004D85FF /* CalorieCardioClimber Watch Watch App.app in Embed Watch Content */,
+				1612C074307C5A37004D85FF /* Pacer.app in Embed Watch Content */,
 			);
 			name = "Embed Watch Content";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -35,7 +35,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		1612C06A307C5A36004D85FF /* CalorieCardioClimber Watch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "CalorieCardioClimber Watch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		1612C06A307C5A36004D85FF /* Pacer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Pacer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		16CBFF75307C189C00F296DF /* CalorieCardioClimber.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CalorieCardioClimber.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -83,7 +83,7 @@
 			isa = PBXGroup;
 			children = (
 				16CBFF75307C189C00F296DF /* CalorieCardioClimber.app */,
-				1612C06A307C5A36004D85FF /* CalorieCardioClimber Watch Watch App.app */,
+				1612C06A307C5A36004D85FF /* Pacer.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -110,7 +110,7 @@
 			packageProductDependencies = (
 			);
 			productName = "HRMountainGhost Watch Watch App";
-			productReference = 1612C06A307C5A36004D85FF /* CalorieCardioClimber Watch Watch App.app */;
+			productReference = 1612C06A307C5A36004D85FF /* Pacer.app */;
 			productType = "com.apple.product-type.application";
 		};
 		16CBFF74307C189C00F296DF /* CalorieCardioClimber */ = {
@@ -229,24 +229,20 @@
 				DEVELOPMENT_TEAM = J66HU9WMGP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "HRMountainGhost Watch";
-				INFOPLIST_KEY_NSHealthClinicalHealthRecordsShareUsageDescription = "CalorieCardioClimber records workout data";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "CalorieCardioClimber records workout data";
-				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "CalorieCardioClimber records workout data";
-				INFOPLIST_KEY_NSHomeKitUsageDescription = "CalorieCardioClimber records workout data";
-				INFOPLIST_KEY_NSIdentityUsageDescription = "CalorieCardioClimber records workout data";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "PaceGauge uses your location to track running speed and distance.";
-				INFOPLIST_KEY_NSUserTrackingUsageDescription = "CalorieCardioClimber records workout data";
+				INFOPLIST_KEY_CFBundleDisplayName = Pacer;
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Pacer reads your heart rate and workout data to display live metrics during your workout.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Pacer saves your completed workouts and route data to Apple Health.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Pacer uses your location to track running speed and save your workout route.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.dobbs.CalorieCardioClimber;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.dobbs.Pacer;
 				INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.dobbs.CalorieCardioClimber.watchkitapp;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.dobbs.Pacer.watchkitapp;
+				PRODUCT_NAME = Pacer;
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -271,24 +267,20 @@
 				DEVELOPMENT_TEAM = J66HU9WMGP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "HRMountainGhost Watch";
-				INFOPLIST_KEY_NSHealthClinicalHealthRecordsShareUsageDescription = "CalorieCardioClimber records workout data";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "CalorieCardioClimber records workout data";
-				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "CalorieCardioClimber records workout data";
-				INFOPLIST_KEY_NSHomeKitUsageDescription = "CalorieCardioClimber records workout data";
-				INFOPLIST_KEY_NSIdentityUsageDescription = "CalorieCardioClimber records workout data";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "PaceGauge uses your location to track running speed and distance.";
-				INFOPLIST_KEY_NSUserTrackingUsageDescription = "CalorieCardioClimber records workout data";
+				INFOPLIST_KEY_CFBundleDisplayName = Pacer;
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Pacer reads your heart rate and workout data to display live metrics during your workout.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Pacer saves your completed workouts and route data to Apple Health.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Pacer uses your location to track running speed and save your workout route.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.dobbs.CalorieCardioClimber;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.dobbs.Pacer;
 				INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.dobbs.CalorieCardioClimber.watchkitapp;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.dobbs.Pacer.watchkitapp;
+				PRODUCT_NAME = Pacer;
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
